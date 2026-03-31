@@ -359,6 +359,24 @@ LRESULT CALLBACK CAddressBar::ComboboxSubclassProc(HWND hWnd, UINT uMsg, WPARAM 
 		return result;
 	}
 
+	else if (uMsg == WM_NOTIFY)
+	{
+		// Fix Go button text color on Basic/High Contrast themes
+		LPNMHDR hdr = (LPNMHDR)lParam;
+		if (hdr->hwndFrom == self->m_goButton && hdr->code == NM_CUSTOMDRAW)
+		{
+			LPNMTBCUSTOMDRAW pCD = (LPNMTBCUSTOMDRAW)lParam;
+			switch (pCD->nmcd.dwDrawStage)
+			{
+			case CDDS_PREPAINT:
+				return CDRF_NOTIFYITEMDRAW;
+			case CDDS_ITEMPREPAINT:
+				pCD->clrText = GetSysColor(COLOR_BTNTEXT);
+				return CDRF_DODEFAULT;
+			}
+		}
+	}
+
 	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
 }
 

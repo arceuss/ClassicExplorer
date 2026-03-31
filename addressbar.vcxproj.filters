@@ -32,6 +32,9 @@
     <Filter Include="Source Files\Browser Helper Object">
       <UniqueIdentifier>{6a1ba487-fbae-4c5e-9041-e71c599adfac}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Standard Toolbar">
+      <UniqueIdentifier>{b2c3f4a5-8e7d-4f1a-9b6c-d5e8f7a0b1c2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -169,6 +172,9 @@
     <ClInclude Include="BrandBand\BrandBand.h">
       <Filter>Source Files\Throbber</Filter>
     </ClInclude>
+    <ClInclude Include="StandardToolbar\StandardToolbar.h">
+      <Filter>Source Files\Standard Toolbar</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ClassicExplorer_i.c">
@@ -197,6 +203,9 @@
     </ClCompile>
     <ClCompile Include="BrandBand\BrandBand.cpp">
       <Filter>Source Files\Throbber</Filter>
+    </ClCompile>
+    <ClCompile Include="StandardToolbar\StandardToolbar.cpp">
+      <Filter>Source Files\Standard Toolbar</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -273,6 +282,18 @@
       <Filter>Resource Files\Default Resources</Filter>
     </Image>
     <Image Include="DefaultResources\bg_search_blue.bmp">
+      <Filter>Resource Files\Default Resources</Filter>
+    </Image>
+    <Image Include="DefaultResources\tb_sh_def_16.bmp">
+      <Filter>Resource Files\Default Resources</Filter>
+    </Image>
+    <Image Include="DefaultResources\tb_sh_hot_16.bmp">
+      <Filter>Resource Files\Default Resources</Filter>
+    </Image>
+    <Image Include="DefaultResources\tb_sh_def_24.bmp">
+      <Filter>Resource Files\Default Resources</Filter>
+    </Image>
+    <Image Include="DefaultResources\tb_sh_hot_24.bmp">
       <Filter>Resource Files\Default Resources</Filter>
     </Image>
     <Image Include="DefaultResources\memphis\go_active.bmp">

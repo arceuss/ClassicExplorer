@@ -13,6 +13,8 @@
 
 #include "BrandBand.h"
 
+// ================================================================================================
+
 void CBrandBand::ClearResources()
 {
 	DeleteObject(m_hBitmap);
@@ -108,6 +110,10 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 	AppendMenuW(hMenu, (currentSettings.showAddressLabel ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7011, L"Show Address label");
 	AppendMenuW(hMenu, (currentSettings.showFullAddress ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7012, L"Show full address");
 
+	AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+
+	AppendMenuW(hMenu, MF_STRING, 7020, L"Customize Toolbar...");
+
 	POINT p;
 	p.x = GET_X_LPARAM(lParam);
 	p.y = GET_Y_LPARAM(lParam);
@@ -137,6 +143,20 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 	case 7012:
 		CEUtil::WriteCESettings(CEUtil::CESettings(CLASSIC_EXPLORER_NONE, -1, -1, !currentSettings.showFullAddress));
 		break;
+	case 7020:
+	{
+		// Send customize toolbar message to the same Explorer window.
+		// The StandardToolbar's top-level subclass proc receives it and calls TB_CUSTOMIZE.
+		HWND hWnd;
+		GetWindow(&hWnd);
+		HWND hTop = GetAncestor(hWnd, GA_ROOT);
+		if (hTop)
+		{
+			static UINT uMsg = RegisterWindowMessageW(CE_WM_CUSTOMIZE_TOOLBAR_NAME);
+			SendMessage(hTop, uMsg, 0, 0);
+		}
+		return S_OK;  // Don't show the "restart" message for this
+	}
 	}
 	MessageBeep(0);
 	MessageBox(L"Open a new file explorer window to see the changes.");

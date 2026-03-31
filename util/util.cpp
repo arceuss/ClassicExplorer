@@ -16,6 +16,10 @@ CESettings GetCESettings()
 	bool fShowGoButton = true;
 	bool fShowAddressLabel = true;
 	bool fShowFullAddress = true;
+	DWORD dwSmallIcons = 0;          // default: large icons
+	DWORD dwTextLabelMode = CE_TEXTMODE_SELECTIVE; // default: selective text on right
+	DWORD dwIE55Style = 0;           // default: off (IE6 style)
+	DWORD dwWin98Views = 0;          // default: off (no split Views button)
 
 	ClassicExplorerTheme theme = CLASSIC_EXPLORER_2K;
 	HKEY hKey;
@@ -36,7 +40,11 @@ CESettings GetCESettings()
 		RegSetValueExW(hKey, L"ShowGoButton", 0, REG_DWORD, (BYTE*)&fShowGoButton, 4);
 		RegSetValueExW(hKey, L"ShowAddressLabel", 0, REG_DWORD, (BYTE*)&fShowAddressLabel, 4);
 		RegSetValueExW(hKey, L"ShowFullAddress", 0, REG_DWORD, (BYTE*)&fShowFullAddress, 4);
-		return CESettings(CLASSIC_EXPLORER_2K, 1, 1,1);
+		RegSetValueExW(hKey, L"SmallIcons", 0, REG_DWORD, (BYTE*)&dwSmallIcons, 4);
+		RegSetValueExW(hKey, L"TextLabelMode", 0, REG_DWORD, (BYTE*)&dwTextLabelMode, 4);
+		RegSetValueExW(hKey, L"IE55Style", 0, REG_DWORD, (BYTE*)&dwIE55Style, 4);
+		RegSetValueExW(hKey, L"Win98Views", 0, REG_DWORD, (BYTE*)&dwWin98Views, 4);
+		return CESettings(CLASSIC_EXPLORER_2K, 1, 1, 1, 0, CE_TEXTMODE_SELECTIVE, 0, 0);
 	}
 	// Read settings
 	//WCHAR themeRead[8];
@@ -55,9 +63,22 @@ CESettings GetCESettings()
 	RegGetValueW(hKey, nullptr, L"ShowAddressLabel", RRF_RT_REG_DWORD, nullptr, &fShowAddressLabel, &dwValueSize);
 	RegGetValueW(hKey, nullptr, L"ShowFullAddress", RRF_RT_REG_DWORD, nullptr, &fShowFullAddress, &dwValueSize);
 
+	dwValueSize = sizeof(DWORD);
+	if (RegGetValueW(hKey, nullptr, L"SmallIcons", RRF_RT_REG_DWORD, nullptr, &dwSmallIcons, &dwValueSize) != ERROR_SUCCESS)
+		dwSmallIcons = 0;
+	dwValueSize = sizeof(DWORD);
+	if (RegGetValueW(hKey, nullptr, L"TextLabelMode", RRF_RT_REG_DWORD, nullptr, &dwTextLabelMode, &dwValueSize) != ERROR_SUCCESS)
+		dwTextLabelMode = CE_TEXTMODE_SELECTIVE;
+	dwValueSize = sizeof(DWORD);
+	if (RegGetValueW(hKey, nullptr, L"IE55Style", RRF_RT_REG_DWORD, nullptr, &dwIE55Style, &dwValueSize) != ERROR_SUCCESS)
+		dwIE55Style = 0;
+	dwValueSize = sizeof(DWORD);
+	if (RegGetValueW(hKey, nullptr, L"Win98Views", RRF_RT_REG_DWORD, nullptr, &dwWin98Views, &dwValueSize) != ERROR_SUCCESS)
+		dwWin98Views = 0;
+
 	RegCloseKey(hKey);
 
-	return CESettings(theme, fShowGoButton, fShowAddressLabel, fShowFullAddress);
+	return CESettings(theme, fShowGoButton, fShowAddressLabel, fShowFullAddress, dwSmallIcons, dwTextLabelMode, dwIE55Style, dwWin98Views);
 }
 
 void WriteCESettings(CESettings& toWrite)
@@ -92,6 +113,22 @@ void WriteCESettings(CESettings& toWrite)
 	if (toWrite.showFullAddress != -1)
 	{
 		RegSetValueExW(hKey, L"ShowFullAddress", 0, REG_DWORD, (BYTE*)&toWrite.showFullAddress, 4);
+	}
+	if (toWrite.smallIcons != -1)
+	{
+		RegSetValueExW(hKey, L"SmallIcons", 0, REG_DWORD, (BYTE*)&toWrite.smallIcons, 4);
+	}
+	if (toWrite.textLabelMode != -1)
+	{
+		RegSetValueExW(hKey, L"TextLabelMode", 0, REG_DWORD, (BYTE*)&toWrite.textLabelMode, 4);
+	}
+	if (toWrite.ie55Style != -1)
+	{
+		RegSetValueExW(hKey, L"IE55Style", 0, REG_DWORD, (BYTE*)&toWrite.ie55Style, 4);
+	}
+	if (toWrite.win98Views != -1)
+	{
+		RegSetValueExW(hKey, L"Win98Views", 0, REG_DWORD, (BYTE*)&toWrite.win98Views, 4);
 	}
 	RegCloseKey(hKey);
 }

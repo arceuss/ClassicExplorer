@@ -46,6 +46,7 @@ STDAPI DllRegisterServer(void)
 		{
 			static CATID rgCatIDs[] = { CATID_AppContainerCompatible, CATID_DeskBand };
 			catRegister->RegisterClassImplCategories(CLSID_CAddressBarHostBand, ARRAYSIZE(rgCatIDs), rgCatIDs);
+			catRegister->RegisterClassImplCategories(CLSID_CStandardToolbar, ARRAYSIZE(rgCatIDs), rgCatIDs);
 		}
 	}
 

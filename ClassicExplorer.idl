@@ -40,6 +40,16 @@ interface IBrandBand : IDispatch {};
 interface IBrowserHelperObject : IDispatch {};
 
 [
+	object,
+	uuid(A7E4A362-5AF0-4F6F-A2DC-8DCF0B0C4424),
+	dual,
+	nonextensible,
+	helpstring("IStandardToolbar Interface"),
+	pointer_default(unique)
+]
+interface IStandardToolbar : IDispatch {};
+
+[
 	uuid(205F9779-62D5-4E06-8DAD-8E150FFA38DB),
 	version(1.0),
 ]
@@ -69,5 +79,13 @@ library AddressBarLib
 	coclass BrowserHelperObject
 	{
 		[default] interface IBrowserHelperObject;
+	};
+
+	[
+		uuid(E2A7D55E-1658-4B9E-9FCA-6ABCE8B1A2B7)
+	]
+	coclass CStandardToolbar
+	{
+		[default] interface IStandardToolbar;
 	};
 };
