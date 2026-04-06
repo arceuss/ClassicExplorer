@@ -21,26 +21,6 @@ interface IAddressBarHostBand : IDispatch {};
 
 [
 	object,
-	uuid(3E0BC6FD-A487-4438-B669-859D38F594A2),
-	dual,
-	nonextensible,
-	helpstring("IBrandBand Interface"),
-	pointer_default(unique)
-]
-interface IBrandBand : IDispatch {};
-
-[
-	object,
-	uuid(1D09EB49-083A-4679-A1D5-2F15CAD4D88F),
-	dual,
-	nonextensible,
-	helpstring("IBrowserHelperObject Interface"),
-	pointer_default(unique)
-]
-interface IBrowserHelperObject : IDispatch {};
-
-[
-	object,
 	uuid(A7E4A362-5AF0-4F6F-A2DC-8DCF0B0C4424),
 	dual,
 	nonextensible,
@@ -63,22 +43,6 @@ library AddressBarLib
 	coclass CAddressBarHostBand
 	{
 		[default] interface IAddressBarHostBand;
-	};
-
-	[
-		uuid(9F7E1105-EB11-4A41-857A-F7E1494D3818)
-	]
-	coclass CBrandBand
-	{
-		[default] interface IBrandBand;
-	};
-
-	[
-		uuid(844CFA4E-7D74-4C80-B134-D214C9699F98)
-	]
-	coclass BrowserHelperObject
-	{
-		[default] interface IBrowserHelperObject;
 	};
 
 	[

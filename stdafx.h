@@ -10,6 +10,7 @@
 #include "targetver.h"
 
 #define STRICT_TYPED_ITEMIDS
+#define ISOLATION_AWARE_ENABLED 1
 
 #define _ATL_APARTMENT_THREADED
 #define _ATL_NO_AUTOMATIC_NAMESPACE

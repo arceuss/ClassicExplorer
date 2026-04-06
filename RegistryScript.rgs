@@ -14,8 +14,6 @@
 #define PROG_ID_WITH_VERSION      PROG_ID##.1
 
 #define CLSID_AddressBarHostBand  {FC5A7312-CFFE-4BF1-83E8-22D44C040568} 
-#define CLSID_BrandBand           {9F7E1105-EB11-4A41-857A-F7E1494D3818}
-#define CLSID_BrowserHelperObject {844CFA4E-7D74-4C80-B134-D214C9699F98}
 #define CLSID_StandardToolbar     {E2A7D55E-1658-4B9E-9FCA-6ABCE8B1A2B7}
 
 #define TYPELIB_ClassicExplorer   {205F9779-62D5-4E06-8DAD-8E150FFA38DB}
@@ -27,12 +25,12 @@ HKCR
 	//
 	PROG_ID_WITH_VERSION = s 'Classic Explorer v1 Class'
 	{
-		CLSID = s CLSID_AddressBarHostBand
+		CLSID = s CLSID_StandardToolbar
 	}
 
 	PROG_ID = s 'Classic Explorer Class'
 	{
-		CLSID = s CLSID_AddressBarHostBand
+		CLSID = s CLSID_StandardToolbar
 		CurVer = s PROG_ID_WITH_VERSION
 	}
 
@@ -41,43 +39,7 @@ HKCR
 	//
 	NoRemove CLSID
 	{
-		ForceRemove CLSID_AddressBarHostBand = s 'Classic Address Bar'
-		{
-			ProgID = s PROG_ID_WITH_VERSION
-			VersionIndependentProgID = s PROG_ID
-			ForceRemove 'Programmable'
-			InprocServer32 = s '%MODULE%' // %MODULE% is a constant for the ATL parser (runtime).
-			{
-				val ThreadingModel = s 'Apartment'
-			}
-			'TypeLib' = s TYPELIB_ClassicExplorer
-		}
-
-		ForceRemove CLSID_BrandBand = s 'Brand Band'
-		{
-			ProgID = s PROG_ID_WITH_VERSION
-			VersionIndependentProgID = s PROG_ID
-			ForceRemove 'Programmable'
-			InprocServer32 = s '%MODULE%'
-			{
-				val ThreadingModel = s 'Apartment'
-			}
-			'TypeLib' = s TYPELIB_ClassicExplorer
-		}
-
-		ForceRemove CLSID_BrowserHelperObject = s 'ClassicExplorer BHO'
-		{
-			ProgID = s PROG_ID_WITH_VERSION
-			VersionIndependentProgID = s PROG_ID
-			ForceRemove 'Programmable'
-			InprocServer32 = s '%MODULE%'
-			{
-				val ThreadingModel = s 'Apartment'
-			}
-			'TypeLib' = s TYPELIB_ClassicExplorer
-		}
-
-		ForceRemove CLSID_StandardToolbar = s 'Standard Buttons'
+		ForceRemove CLSID_StandardToolbar = s 'NT4 Explorer Toolbar'
 		{
 			ProgID = s PROG_ID_WITH_VERSION
 			VersionIndependentProgID = s PROG_ID
@@ -104,8 +66,6 @@ HKLM
 				//
 				NoRemove Toolbar
 				{
-					ForceRemove val CLSID_AddressBarHostBand = b ''
-					ForceRemove val CLSID_BrandBand = b ''
 					ForceRemove val CLSID_StandardToolbar = b ''
 				}
 			}
@@ -120,21 +80,9 @@ HKLM
 							NoRemove CLSID
 							{
 								// Toolbar policies
-								ForceRemove val CLSID_AddressBarHostBand = s '2'
-								ForceRemove val CLSID_BrandBand = s '2'
+								ForceRemove val CLSID_StandardToolbar = s '2'
 								ForceRemove val CLSID_StandardToolbar = s '2'
 							}
-						}
-					}
-
-					NoRemove Explorer
-					{
-						// ----------------------------------------------------------------------
-						// Browser Helper Object registration:
-						//
-						NoRemove 'Browser Helper Objects'
-						{
-							ForceRemove CLSID_BrowserHelperObject
 						}
 					}
 				}

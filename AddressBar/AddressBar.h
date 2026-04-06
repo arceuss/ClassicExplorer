@@ -10,6 +10,7 @@
 #include "dllmain.h"
 #include "util/util.h"
 #include <string>
+#include <shlobj.h>
 
 class CAddressBar : public CWindowImpl<CAddressBar>
 {
@@ -46,6 +47,7 @@ class CAddressBar : public CWindowImpl<CAddressBar>
 			MESSAGE_HANDLER(WM_CREATE, OnCreate)
 			MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
 			MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
+			MESSAGE_HANDLER(WM_COMMAND, OnCommand)
 		END_MSG_MAP()
 
 	public: // Exported functions:
@@ -69,6 +71,7 @@ class CAddressBar : public CWindowImpl<CAddressBar>
 		LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
 		LRESULT OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
 		LRESULT OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
+		LRESULT OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled);
 
 	protected: // Miscellaneous functions:
 
@@ -83,6 +86,15 @@ class CAddressBar : public CWindowImpl<CAddressBar>
 
 		HRESULT ParseAddress(PIDLIST_RELATIVE *pidlOut);
 		HRESULT ExecuteCommandLine();
-};
+
+		// Shell namespace dropdown (XP-style drives list)
+		void PopulateDropdown();
+		void PurgeDropdown();
+		void NavigateToSelection(int iSel);
+	void AddPidlItem(PIDLIST_ABSOLUTE pidlFull, int iInsert, int iIndent);
+	void FillOneLevel(PIDLIST_ABSOLUTE pidlParent, int iInsertAfter, int iIndent, int iDepth);
+		void ExpandMyComputer(int iDepth);
+		bool m_fDropdownValid = false;	int m_nOldSelection = -1;  // -1 = none, -2 = escape pressed
+	static constexpr int SEL_ESCAPE_PRESSED = -2;};
 
 #endif // _ADDRESSBAR_H

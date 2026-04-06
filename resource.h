@@ -7,58 +7,17 @@
 
 #define IDS_ADDRESSBANDACCELERATOR      103
 
+// NT4 comctl32 toolbar bitmaps (STD strip + VIEW strip)
+#define IDB_NT4_STD_SMALL               900
+#define IDB_NT4_STD_LARGE               901
+#define IDB_NT4_VIEW_SMALL              902
+#define IDB_NT4_VIEW_LARGE              903
+
+// Address bar Go button bitmaps (used by AddressBar component)
+#define IDB_2K_GO_INACTIVE              200
 #define IDB_2K_GO_ACTIVE                201
-#define IDB_2K_GO_INACTIVE              202
-#define IDB_2K_THROBBER_SIZE_SMALL      203
-#define IDB_2K_THROBBER_SIZE_MID        204
-#define IDB_2K_THROBBER_SIZE_LARGE      205
-
-#define IDB_XP_GO_ACTIVE                301
-#define IDB_XP_GO_INACTIVE              302
-#define IDB_XP_THROBBER_SIZE_SMALL      303
-#define IDB_XP_THROBBER_SIZE_MID        304
-#define IDB_XP_THROBBER_SIZE_LARGE      305
-
-#define IDB_BG_PICTURES_BLUE            500
-#define IDB_BG_SEARCH_BLUE              501
-#define IDB_BG_MUSIC_BLUE               502
-#define IDB_BG_VIDEOS_BLUE              503
-
-// Standard Buttons toolbar bitmaps (XP theme)
-#define IDB_TB_SHELL_DEF_16             700
-#define IDB_TB_SHELL_HOT_16             701
-#define IDB_TB_SHELL_DEF_24             702
-#define IDB_TB_SHELL_HOT_24             703
-
-// Standard Buttons toolbar bitmaps (2K theme — 20px large icons, authentic Win2K size)
-#define IDB_TB_2K_SHELL_DEF_16          710
-#define IDB_TB_2K_SHELL_HOT_16          711
-#define IDB_TB_2K_SHELL_DEF_20          712
-#define IDB_TB_2K_SHELL_HOT_20          713
-
-// Shell32 toolbar bitmaps (XP-themed icons for Properties, Cut, Copy, Paste, Folder Options)
-#define IDB_SHELL32_DEF_16              720
-#define IDB_SHELL32_HOT_16              721
-#define IDB_SHELL32_DEF_24              722
-#define IDB_SHELL32_HOT_24              723
-
-// Shell32 toolbar bitmaps (2K-themed — from win2k browseui shell standard bitmap)
-#define IDB_2K_SHELL32_DEF_16           730
-#define IDB_2K_SHELL32_HOT_16           731
-#define IDB_2K_SHELL32_DEF_20           732
-#define IDB_2K_SHELL32_HOT_20           733
-
-// Standard Buttons toolbar bitmaps (2K IE5.5 theme — original Win2K bitmaps)
-#define IDB_TB_2K_IE55_SHELL_DEF_16     740
-#define IDB_TB_2K_IE55_SHELL_HOT_16     741
-#define IDB_TB_2K_IE55_SHELL_DEF_20     742
-#define IDB_TB_2K_IE55_SHELL_HOT_20     743
-
-// Shell32 toolbar bitmaps (2K IE5.5 — original Win2K shell standard bitmap)
-#define IDB_2K_IE55_SHELL32_DEF_16      744
-#define IDB_2K_IE55_SHELL32_HOT_16      745
-#define IDB_2K_IE55_SHELL32_DEF_20      746
-#define IDB_2K_IE55_SHELL32_HOT_20      747
+#define IDB_XP_GO_INACTIVE              202
+#define IDB_XP_GO_ACTIVE                203
 
 // Standard Buttons toolbar string table
 #define IDS_TB_BACK                     750
@@ -84,24 +43,12 @@
 #define IDS_TB_COPY                     770
 #define IDS_TB_PASTE                    771
 #define IDS_TB_FOLDEROPTIONS            772
+#define IDS_TB_LARGEICONS               773
+#define IDS_TB_SMALLICONS               774
+#define IDS_TB_LIST                     775
+#define IDS_TB_DETAILS                  776
 
-// Customize Toolbar dialog
-#define IDD_CUSTOMIZE_TOOLBAR           800
-#define IDC_SHOWTEXT                    801
-#define IDC_SMALLICONS                  802
-#define IDC_TEXTLABEL_LABEL             803
-#define IDC_ICONSIZE_LABEL              804
-#define IDC_IE55STYLE                   805
-#define IDC_WIN98VIEWS                  806
-
-// Customize Toolbar dialog strings
-#define IDS_TEXTOPTIONS_LABEL           810
-#define IDS_ICONOPTIONS_LABEL           811
-#define IDS_TEXTLABELS                  812
-#define IDS_PARTIALTEXT                 813
-#define IDS_NOTEXTLABELS                814
-#define IDS_SMALLICONS                  815
-#define IDS_LARGEICONS                  816
+// (Customize Toolbar dialog removed for NT4 conversion)
 
 #define IDS_NOTFOUND_TITLE_2K           600
 #define IDS_NOTFOUND_TEXT_2K            601

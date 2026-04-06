@@ -22,6 +22,7 @@
 
 #include "StandardToolbar.h"
 #include "../util/util.h"
+#include "../AddressBar/AddressBar.h"
 
 #include <commctrl.h>
 #include <commoncontrols.h>
@@ -155,218 +156,112 @@ static HRESULT __stdcall BagWriteHook(IPropertyBag* pThis, LPCOLESTR pszPropName
 #define DEFVIEW_VIEW_LIST        28753
 #define DEFVIEW_VIEW_DETAILS     28747
 
-// ================================================================================================
-// Registered window message for settings change notification (broadcast by Customize dialog)
-//
-static UINT g_uMsgSettingsChanged = 0;
-
-static UINT GetSettingsChangedMsg()
-{
-	if (!g_uMsgSettingsChanged)
-		g_uMsgSettingsChanged = RegisterWindowMessageW(CE_WM_SETTINGS_CHANGED_NAME);
-	return g_uMsgSettingsChanged;
-}
+// (Settings change notification and customize dialog removed for NT4 conversion)
 
 // ================================================================================================
-// Internal comctl32 structure for TBN_INITCUSTOMIZE / TBN_RESET notifications.
-// Not in public SDK headers but present in comctl32 v5/v6 since Windows XP.
-//
-
-typedef struct tagNMTBCUSTOMIZEDLG {
-	NMHDR hdr;
-	HWND  hDlg;
-} NMTBCUSTOMIZEDLG, *LPNMTBCUSTOMIZEDLG;
-
-#ifndef TBNRF_HIDEHELP
-#define TBNRF_HIDEHELP      0x00000001
-#endif
-
-#ifndef TBNRF_ENDCUSTOMIZE
-#define TBNRF_ENDCUSTOMIZE  0x00000002
-#endif
-
-// ================================================================================================
-// Registered window message for customize toolbar request (sent by BrandBand menu)
-//
-
-static UINT g_uMsgCustomizeToolbar = 0;
-
-static UINT GetCustomizeToolbarMsg()
-{
-	if (!g_uMsgCustomizeToolbar)
-		g_uMsgCustomizeToolbar = RegisterWindowMessageW(CE_WM_CUSTOMIZE_TOOLBAR_NAME);
-	return g_uMsgCustomizeToolbar;
-}
-
-// ================================================================================================
-// Customize Toolbar child dialog (text/icon options)
-// Embedded in comctl32's TB_CUSTOMIZE dialog via TBN_INITCUSTOMIZE.
-// Ported from Windows XP's DLG_TEXTICONOPTIONS / _BtnAttrDlgProc in itbar.cpp.
-//
-
-static void _PopulateCombo(HWND hwndCombo, const int* pIds, int cIds, HINSTANCE hInst)
-{
-	for (int i = 0; i < cIds; i++)
-	{
-		WCHAR szText[64] = {};
-		LoadStringW(hInst, pIds[i], szText, ARRAYSIZE(szText));
-		int idx = (int)SendMessageW(hwndCombo, CB_ADDSTRING, 0, (LPARAM)szText);
-		SendMessageW(hwndCombo, CB_SETITEMDATA, idx, (LPARAM)pIds[i]);
-	}
-}
-
-static void _SetComboSelection(HWND hwndCombo, int idsTarget)
-{
-	int cItems = (int)SendMessageW(hwndCombo, CB_GETCOUNT, 0, 0);
-	for (int i = 0; i < cItems; i++)
-	{
-		if ((int)SendMessageW(hwndCombo, CB_GETITEMDATA, i, 0) == idsTarget)
-		{
-			SendMessageW(hwndCombo, CB_SETCURSEL, i, 0);
-			return;
-		}
-	}
-	SendMessageW(hwndCombo, CB_SETCURSEL, 0, 0);
-}
-
-static const int c_iTextOptions[] = { IDS_TEXTLABELS, IDS_PARTIALTEXT, IDS_NOTEXTLABELS };
-static const int c_iIconOptions[] = { IDS_LARGEICONS, IDS_SMALLICONS };
-
-static DWORD _TextIdsToMode(INT_PTR ids)
-{
-	switch (ids)
-	{
-	case IDS_TEXTLABELS:  return CE_TEXTMODE_SHOWTEXT;
-	case IDS_PARTIALTEXT: return CE_TEXTMODE_SELECTIVE;
-	case IDS_NOTEXTLABELS:return CE_TEXTMODE_NOTEXT;
-	default:              return CE_TEXTMODE_SELECTIVE;
-	}
-}
-
-static int _TextModeToIds(DWORD dwMode)
-{
-	switch (dwMode)
-	{
-	case CE_TEXTMODE_SHOWTEXT:  return IDS_TEXTLABELS;
-	case CE_TEXTMODE_SELECTIVE: return IDS_PARTIALTEXT;
-	case CE_TEXTMODE_NOTEXT:    return IDS_NOTEXTLABELS;
-	default:                    return IDS_PARTIALTEXT;
-	}
-}
-
-static INT_PTR CALLBACK CustomizeChildDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	switch (uMsg)
-	{
-	case WM_INITDIALOG:
-	{
-		HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-		CEUtil::CESettings settings = CEUtil::GetCESettings();
-
-		HWND hwndText = GetDlgItem(hDlg, IDC_SHOWTEXT);
-		HWND hwndIcons = GetDlgItem(hDlg, IDC_SMALLICONS);
-
-		_PopulateCombo(hwndText, c_iTextOptions, ARRAYSIZE(c_iTextOptions), hInst);
-		_PopulateCombo(hwndIcons, c_iIconOptions, ARRAYSIZE(c_iIconOptions), hInst);
-
-		_SetComboSelection(hwndText, _TextModeToIds(settings.textLabelMode));
-		_SetComboSelection(hwndIcons, settings.smallIcons ? IDS_SMALLICONS : IDS_LARGEICONS);
-
-		// IE 5.5 style and Win98 Views checkboxes — only visible when 2K skin is active
-		HWND hwndIE55 = GetDlgItem(hDlg, IDC_IE55STYLE);
-		HWND hwndW98V = GetDlgItem(hDlg, IDC_WIN98VIEWS);
-		if (settings.theme == CLASSIC_EXPLORER_2K)
-		{
-			ShowWindow(hwndIE55, SW_SHOW);
-			SendMessage(hwndIE55, BM_SETCHECK, settings.ie55Style ? BST_CHECKED : BST_UNCHECKED, 0);
-			ShowWindow(hwndW98V, SW_SHOW);
-			SendMessage(hwndW98V, BM_SETCHECK, settings.win98Views == 1 ? BST_CHECKED : BST_UNCHECKED, 0);
-		}
-		else
-		{
-			ShowWindow(hwndIE55, SW_HIDE);
-			ShowWindow(hwndW98V, SW_HIDE);
-		}
-
-		return TRUE;
-	}
-
-	case WM_COMMAND:
-	{
-		int idCtrl = LOWORD(wParam);
-		int notif = HIWORD(wParam);
-
-		if ((idCtrl == IDC_SHOWTEXT || idCtrl == IDC_SMALLICONS) &&
-			(notif == CBN_SELENDOK || notif == CBN_CLOSEUP))
-		{
-			HWND hwndText = GetDlgItem(hDlg, IDC_SHOWTEXT);
-			HWND hwndIcons = GetDlgItem(hDlg, IDC_SMALLICONS);
-
-			INT_PTR iTextSel = SendMessageW(hwndText, CB_GETCURSEL, 0, 0);
-			INT_PTR idsText = SendMessageW(hwndText, CB_GETITEMDATA, iTextSel, 0);
-			DWORD dwTextMode = _TextIdsToMode(idsText);
-
-			INT_PTR iIconSel = SendMessageW(hwndIcons, CB_GETCURSEL, 0, 0);
-			INT_PTR idsIcon = SendMessageW(hwndIcons, CB_GETITEMDATA, iIconSel, 0);
-			DWORD dwSmallIcons = (idsIcon == IDS_SMALLICONS) ? 1 : 0;
-
-			// Save to registry — changes take effect in newly opened Explorer windows
-			CEUtil::CESettings newSettings(CLASSIC_EXPLORER_NONE, -1, -1, -1, dwSmallIcons, dwTextMode);
-			CEUtil::WriteCESettings(newSettings);
-
-			return TRUE;
-		}
-
-		if (idCtrl == IDC_IE55STYLE && notif == BN_CLICKED)
-		{
-			DWORD dwIE55 = (SendMessage(GetDlgItem(hDlg, IDC_IE55STYLE), BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
-			CEUtil::CESettings newSettings(CLASSIC_EXPLORER_NONE, -1, -1, -1, -1, -1, dwIE55);
-			CEUtil::WriteCESettings(newSettings);
-			return TRUE;
-		}
-
-		if (idCtrl == IDC_WIN98VIEWS && notif == BN_CLICKED)
-		{
-			DWORD dwW98V = (SendMessage(GetDlgItem(hDlg, IDC_WIN98VIEWS), BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
-			CEUtil::CESettings newSettings(CLASSIC_EXPLORER_NONE, -1, -1, -1, -1, -1, -1, dwW98V);
-			CEUtil::WriteCESettings(newSettings);
-			return TRUE;
-		}
-		break;
-	}
-	}
-	return FALSE;
-}
-
-// ================================================================================================
-// Top-level window subclass to receive broadcast settings change messages
-// and forward them to the CStandardToolbar instance.
+// Top-level window subclass — no longer needed for NT4 (no settings change broadcasts)
+// Kept as stub for potential future use.
 //
 
 static LRESULT CALLBACK TopLevelSubclassProc(
 	HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
 	UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
 {
-	CStandardToolbar* pThis = reinterpret_cast<CStandardToolbar*>(dwRefData);
-
-	if (uMsg == GetSettingsChangedMsg())
-	{
-		pThis->ReloadSettings();
-		return 0;
-	}
-
-	if (uMsg == GetCustomizeToolbarMsg())
-	{
-		SendMessage(pThis->GetToolbarHwnd(), TB_CUSTOMIZE, 0, 0);
-		return 0;
-	}
-
 	if (uMsg == WM_NCDESTROY)
-	{
 		RemoveWindowSubclass(hWnd, TopLevelSubclassProc, uIdSubclass);
-	}
 
 	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
+// ================================================================================================
+// Container window ("band window") that hosts the combobox + toolbar side-by-side.
+// The rebar owns this window; it parents both the ComboBoxEx and the toolbar control.
+//
+
+static const WCHAR g_szBandClass[] = L"ClassicExplorer.NT4Band";
+static bool g_bBandClassRegistered = false;
+
+static LRESULT CALLBACK BandContainerProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	CStandardToolbar* pThis = (CStandardToolbar*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+
+	switch (uMsg)
+	{
+	case WM_SIZE:
+		if (pThis)
+			pThis->LayoutBandChildren();
+		return 0;
+
+	case WM_COMMAND:
+		// Forward WM_COMMAND from the combobox to the address bar message map
+		if (pThis && pThis->GetAddressBar().IsWindow())
+		{
+			BOOL bHandled = FALSE;
+			HWND hFrom = (HWND)lParam;
+			// Forward toolbar commands to HandleCommand
+			if (hFrom == pThis->GetToolbarHwnd())
+			{
+				pThis->HandleCommand(LOWORD(wParam));
+				return 0;
+			}
+		}
+		break;
+
+	case WM_NOTIFY:
+	{
+		NMHDR* pnmh = (NMHDR*)lParam;
+		if (pThis && pnmh)
+		{
+			// Forward toolbar notifications
+			if (pnmh->hwndFrom == pThis->GetToolbarHwnd())
+			{
+				if (pnmh->code == TBN_DROPDOWN)
+				{
+					NMTOOLBAR* pnmtb = (NMTOOLBAR*)lParam;
+					int idCmd = pnmtb->iItem;
+					if (idCmd == TBIDM_BACK || idCmd == TBIDM_FORWARD)
+					{
+						pThis->ShowBackForwardMenu(idCmd, pnmtb);
+						return TBDDRET_DEFAULT;
+					}
+				}
+			}
+			// Forward combobox notifications to the address bar
+			CAddressBar& ab = pThis->GetAddressBar();
+			if (ab.IsWindow())
+			{
+				BOOL bHandled = FALSE;
+				LRESULT lr = ab.SendMessage(WM_NOTIFY, wParam, lParam);
+			}
+		}
+		break;
+	}
+
+	case WM_ERASEBKGND:
+		// Let the rebar draw the background through us
+		return DefWindowProc(hWnd, uMsg, wParam, lParam);
+
+	case WM_NCDESTROY:
+		SetWindowLongPtr(hWnd, GWLP_USERDATA, 0);
+		break;
+	}
+
+	return DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+
+static void EnsureBandClassRegistered(HINSTANCE hInst)
+{
+	if (g_bBandClassRegistered)
+		return;
+
+	WNDCLASSEX wc = { sizeof(WNDCLASSEX) };
+	wc.lpfnWndProc = BandContainerProc;
+	wc.hInstance = hInst;
+	wc.lpszClassName = g_szBandClass;
+	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+	wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+	RegisterClassEx(&wc);
+	g_bBandClassRegistered = true;
 }
 
 // ================================================================================================
@@ -437,34 +332,53 @@ STDMETHODIMP CStandardToolbar::GetBandInfo(DWORD dwBandId, DWORD dwViewMode, DES
 	if (!pDbi)
 		return E_INVALIDARG;
 
-	// Match XP's TOOLSBANDCLASS::GetBandInfo:
-	// - ptMinSize.x = width of first button (minimum to show something useful)
-	// - ptMinSize.y = height of first button
-	// - dwModeFlags includes DBIMF_USECHEVRON for overflow handling
-
 	pDbi->dwModeFlags = DBIMF_USECHEVRON;
 
-	if (pDbi->dwMask & DBIM_MINSIZE)
+	// Compute combobox width the NT4 way: LOGPIXELSY * 2 (2 logical inches)
+	if (m_comboWidth == 0)
 	{
-		if (m_hWndToolbar && SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0))
+		HDC hdc = GetDC(nullptr);
+		m_comboWidth = GetDeviceCaps(hdc, LOGPIXELSY) * 2;
+		ReleaseDC(nullptr, hdc);
+	}
+
+	// Get toolbar button dimensions
+	int tbHeight = 22;
+	int tbIdealWidth = 0;
+	if (m_hWndToolbar)
+	{
+		int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
+		if (nButtons > 0)
 		{
-			RECT rc = {};
-			SendMessage(m_hWndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rc);
-			pDbi->ptMinSize.x = rc.right - rc.left;
-			pDbi->ptMinSize.y = rc.bottom - rc.top;
+			RECT rcLast = {};
+			SendMessage(m_hWndToolbar, TB_GETITEMRECT, nButtons - 1, (LPARAM)&rcLast);
+			tbIdealWidth = rcLast.right;
+
+			RECT rcFirst = {};
+			SendMessage(m_hWndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rcFirst);
+			tbHeight = rcFirst.bottom - rcFirst.top;
 		}
 		else
 		{
 			LONG lSize = (LONG)SendMessage(m_hWndToolbar, TB_GETBUTTONSIZE, 0, 0);
-			pDbi->ptMinSize.x = LOWORD(lSize);
-			pDbi->ptMinSize.y = HIWORD(lSize);
+			tbHeight = HIWORD(lSize);
 		}
+	}
+
+	// NT4 non-flat toolbar: iYPos=2 top + g_cxEdge=2 bottom = 4px total
+	int bandHeight = max(tbHeight + 4, 22);
+
+	if (pDbi->dwMask & DBIM_MINSIZE)
+	{
+		// Minimum: combobox + separator + one button
+		pDbi->ptMinSize.x = m_comboWidth + 4 + 24;
+		pDbi->ptMinSize.y = bandHeight;
 	}
 
 	if (pDbi->dwMask & DBIM_MAXSIZE)
 	{
 		pDbi->ptMaxSize.x = 0;
-		pDbi->ptMaxSize.y = -1;
+		pDbi->ptMaxSize.y = bandHeight;
 	}
 
 	if (pDbi->dwMask & DBIM_INTEGRAL)
@@ -475,15 +389,9 @@ STDMETHODIMP CStandardToolbar::GetBandInfo(DWORD dwBandId, DWORD dwViewMode, DES
 
 	if (pDbi->dwMask & DBIM_ACTUAL)
 	{
-		SIZE szIdeal = {};
-		if (m_hWndToolbar)
-		{
-			SendMessage(m_hWndToolbar, TB_GETIDEALSIZE, FALSE, (LPARAM)&szIdeal);
-			RECT rc = {};
-			SendMessage(m_hWndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rc);
-			pDbi->ptActual.x = szIdeal.cx;
-			pDbi->ptActual.y = rc.bottom - rc.top;
-		}
+		// Request full width: fixed combobox + gap + all buttons
+		pDbi->ptActual.x = m_comboWidth + 4 + tbIdealWidth;
+		pDbi->ptActual.y = bandHeight;
 	}
 
 	if (pDbi->dwMask & DBIM_TITLE)
@@ -508,7 +416,7 @@ STDMETHODIMP CStandardToolbar::GetWindow(HWND* hWnd)
 	if (!hWnd)
 		return E_INVALIDARG;
 
-	*hWnd = m_hWndToolbar;
+	*hWnd = m_hWndBand;
 	return S_OK;
 }
 
@@ -534,8 +442,8 @@ STDMETHODIMP CStandardToolbar::ResizeBorderDW(const RECT* pRcBorder, IUnknown* p
 STDMETHODIMP CStandardToolbar::ShowDW(BOOL fShow)
 {
 	m_bShow = (fShow != FALSE);
-	if (m_hWndToolbar)
-		ShowWindow(m_hWndToolbar, fShow ? SW_SHOW : SW_HIDE);
+	if (m_hWndBand)
+		ShowWindow(m_hWndBand, fShow ? SW_SHOW : SW_HIDE);
 	return S_OK;
 }
 
@@ -573,6 +481,10 @@ STDMETHODIMP CStandardToolbar::SetSite(IUnknown* pUnkSite)
 		HRESULT hr = CreateToolbarWindow(m_hWndParent);
 		if (FAILED(hr))
 			return hr;
+
+		// Pass browser interfaces to the embedded address bar
+		m_addressBar.SetBrowsers(m_pShellBrowser, m_pWebBrowser);
+		m_addressBar.InitComboBox();
 
 		// Advise for browser events
 		if (m_pWebBrowser)
@@ -623,6 +535,10 @@ STDMETHODIMP CStandardToolbar::SetSite(IUnknown* pUnkSite)
 STDMETHODIMP CStandardToolbar::OnNavigateComplete(IDispatch* pDisp, VARIANT* url)
 {
 	UpdateButtonStates();
+
+	// Update the embedded address bar
+	m_addressBar.HandleNavigate();
+
 	return S_OK;
 }
 
@@ -659,6 +575,8 @@ STDMETHODIMP CStandardToolbar::HasFocusIO()
 	HWND hFocus = GetFocus();
 	if (hFocus == m_hWndToolbar || IsChild(m_hWndToolbar, hFocus))
 		return S_OK;
+	if (m_hWndBand && (hFocus == m_hWndBand || IsChild(m_hWndBand, hFocus)))
+		return S_OK;
 	return S_FALSE;
 }
 
@@ -678,20 +596,13 @@ STDMETHODIMP CStandardToolbar::UIActivateIO(BOOL fActivate, MSG* pMsg)
 // Toolbar creation and initialization
 //
 
-// Helper: Load a bitmap resource and create an image list matching the XP approach.
-// Uses LR_CREATEDIBSECTION so that 32bpp alpha bitmaps are loaded as DIB sections,
-// and the actual bit depth is detected from the bitmap to set ILC flags correctly.
-// This is a port of browseui's CreateImageList() from util.cpp.
-
-// Private comctl32 flag used to extract color depth from bmBitsPixel.
-#ifndef ILC_COLORMASK
-#define ILC_COLORMASK 0x00FE
-#endif
+// Helper: Load a bitmap resource and create an image list.
+// Loads without LR_CREATEDIBSECTION so RLE-compressed bitmaps decompress properly.
 
 static HIMAGELIST _CreateImageListFromResource(HINSTANCE hInst, UINT idBitmap, int cx, COLORREF crMask)
 {
 	HBITMAP hbm = (HBITMAP)LoadImage(hInst, MAKEINTRESOURCE(idBitmap),
-		IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
+		IMAGE_BITMAP, 0, 0, 0);
 	if (!hbm)
 		return nullptr;
 
@@ -705,14 +616,7 @@ static HIMAGELIST _CreateImageListFromResource(HINSTANCE hInst, UINT idBitmap, i
 	int cy = bm.bmHeight;
 	int cInitial = bm.bmWidth / cx;
 
-	// Determine ILC flags from the bitmap's actual bit depth
-	UINT flags = ILC_MASK;
-	if (bm.bmBits)
-		flags |= (bm.bmBitsPixel & ILC_COLORMASK);
-	else
-		flags |= ILC_COLOR24;
-
-	HIMAGELIST himl = ImageList_Create(cx, cy, flags, cInitial, 0);
+	HIMAGELIST himl = ImageList_Create(cx, cy, ILC_COLOR4 | ILC_MASK, cInitial, 0);
 	if (himl)
 	{
 		if (ImageList_AddMasked(himl, hbm, crMask) < 0)
@@ -726,220 +630,51 @@ static HIMAGELIST _CreateImageListFromResource(HINSTANCE hInst, UINT idBitmap, i
 	return himl;
 }
 
-// ================================================================================================
-// XP-style grayscale image list for disabled button state.
-// Ported from Windows Server 2003 browseui itbar.cpp _CreateGrayScaleImagelist().
-//
-// Algorithm matches comctl32 v6's ILS_SATURATE + AlphaBlend path used when
-// the toolbar has no explicit disabled image list:
-//   1. TrueSaturateBits: gray = (54*R + 183*G + 19*B) >> 8  (weighted luminance)
-//   2. AlphaBlend with SourceConstantAlpha = 150 (59% opacity)
-//
-// We pre-apply both steps into the bitmap so the toolbar can use it directly.
-
-static HIMAGELIST _CreateDisabledImageList(HINSTANCE hInst, UINT idBitmap, int cx, COLORREF crMask,
-	ClassicExplorerTheme theme = CLASSIC_EXPLORER_XP)
-{
-	// Load a fresh copy of the bitmap as a DIB section (preserves native format)
-	HBITMAP hbm = (HBITMAP)LoadImage(hInst, MAKEINTRESOURCE(idBitmap),
-		IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-	if (!hbm)
-		return nullptr;
-
-	BITMAP bm = {};
-	if (GetObject(hbm, sizeof(bm), &bm) != sizeof(bm) || !bm.bmBits)
-	{
-		DeleteObject(hbm);
-		return nullptr;
-	}
-
-	int totalWidth  = bm.bmWidth;
-	int totalHeight = bm.bmHeight;
-	int cImages     = totalWidth / cx;
-	int bpp         = bm.bmBitsPixel;
-
-	if (theme == CLASSIC_EXPLORER_2K)
-	{
-		// Win2K browseui never creates a disabled image list — it relies on comctl32's
-		// built-in PSDPxax emboss (etched shadow+highlight) rendered at draw time.
-		// Modern comctl32 v6 still has this code path for non-alpha (8bpp/24bpp) images,
-		// so we just return nullptr to let the toolbar handle disabled rendering natively.
-		DeleteObject(hbm);
-		return nullptr;
-	}
-	else
-	{
-		// XP disabled algorithm: TrueSaturateBits weighted luminance + 59% alpha
-		if (bpp == 32)
-		{
-			BYTE* pBits = (BYTE*)bm.bmBits;
-			long cbScan = bm.bmWidthBytes;
-			for (int y = 0; y < totalHeight; y++)
-			{
-				DWORD* pPixel = (DWORD*)(pBits + y * cbScan);
-				for (int x = 0; x < totalWidth; x++, pPixel++)
-				{
-					DWORD px = *pPixel;
-					BYTE a = (BYTE)(px >> 24);
-					if (a == 0) continue;
-
-					BYTE b = (BYTE)(px);
-					BYTE g = (BYTE)(px >> 8);
-					BYTE r = (BYTE)(px >> 16);
-
-					// comctl32 v6 TrueSaturateBits weighted luminance
-					BYTE gray = (BYTE)((54u * r + 183u * g + 19u * b) >> 8);
-
-					// Pre-multiply with SourceConstantAlpha = 150 (59% opacity)
-					BYTE newA = (BYTE)((a * 150u) / 255u);
-
-					*pPixel = ((DWORD)newA << 24) | ((DWORD)gray << 16) | ((DWORD)gray << 8) | gray;
-				}
-			}
-		}
-		else if (bpp == 24)
-		{
-			BYTE* pBits = (BYTE*)bm.bmBits;
-			long cbScan = bm.bmWidthBytes;
-			BYTE maskR = GetRValue(crMask), maskG = GetGValue(crMask), maskB = GetBValue(crMask);
-			for (int y = 0; y < totalHeight; y++)
-			{
-				BYTE* pScan = pBits + y * cbScan;
-				for (int x = 0; x < totalWidth; x++, pScan += 3)
-				{
-					if (pScan[0] == maskB && pScan[1] == maskG && pScan[2] == maskR)
-						continue;
-					BYTE gray = (BYTE)((54u * pScan[2] + 183u * pScan[1] + 19u * pScan[0]) >> 8);
-					pScan[0] = pScan[1] = pScan[2] = gray;
-				}
-			}
-		}
-	}
-
-	// Create image list matching the bitmap's native bit depth
-	UINT flags = ILC_MASK | (bpp & ILC_COLORMASK);
-	HIMAGELIST himl = ImageList_Create(cx, totalHeight, flags, cImages, 0);
-	if (himl)
-	{
-		if (ImageList_AddMasked(himl, hbm, crMask) < 0)
-		{
-			ImageList_Destroy(himl);
-			himl = nullptr;
-		}
-	}
-
-	DeleteObject(hbm);
-	return himl;
-}
-
-// ================================================================================================
-// Append icons from shell toolbar bitmaps (XP or 2K) to our image lists.
-// The shell32 bitmaps (47 glyphs, browseui shdef layout) contain icons for Properties,
-// Cut, Copy, Paste, and Folder Options at known positions. We extract just those 5
-// and append them.
-//
-// Shell32 bitmap glyph layout (shared between XP and 2K):
-//   Index 5  = STD_CUT       (OFFSET_STD + STD_CUT)
-//   Index 6  = STD_COPY      (OFFSET_STD + STD_COPY)
-//   Index 7  = STD_PASTE     (OFFSET_STD + STD_PASTE)
-//   Index 15 = STD_PROPERTIES(OFFSET_STD + STD_PROPERTIES)
-//   Index 46 = VIEW_OPTIONS  (OFFSET_VIEW + VIEW_OPTIONS)
-//
-
-static void _AppendShell32Icons(HIMAGELIST himlTarget, UINT idShell32Bmp, int cx, COLORREF crMask,
-	const int* pSrcIndices, int cIndices)
-{
-	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-	HBITMAP hbm = (HBITMAP)LoadImage(hInst, MAKEINTRESOURCE(idShell32Bmp),
-		IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION);
-	if (!hbm) return;
-
-	BITMAP bm = {};
-	GetObject(hbm, sizeof(bm), &bm);
-	int cy = bm.bmHeight;
-
-	// Create a temporary image list from the full shell32 bitmap
-	UINT flags = ILC_MASK | (bm.bmBitsPixel & ILC_COLORMASK);
-	HIMAGELIST himlSrc = ImageList_Create(cx, cy, flags, bm.bmWidth / cx, 0);
-	if (himlSrc)
-	{
-		ImageList_AddMasked(himlSrc, hbm, crMask);
-
-		for (int i = 0; i < cIndices; i++)
-		{
-			HICON hIcon = ImageList_GetIcon(himlSrc, pSrcIndices[i], ILD_TRANSPARENT);
-			if (hIcon)
-			{
-				ImageList_AddIcon(himlTarget, hIcon);
-				DestroyIcon(hIcon);
-			}
-		}
-		ImageList_Destroy(himlSrc);
-	}
-	DeleteObject(hbm);
-}
-
-// Shell32 glyph source indices for our 5 extra buttons
-// Order must match GLYPHIDX_PROPERTIES(18), CUT(19), COPY(20), PASTE(21), FOLDEROPTIONS(22)
-static const int c_shell32GlyphIndices[] = { 15, 5, 6, 7, 46 };
-static const int c_nShell32Glyphs = ARRAYSIZE(c_shell32GlyphIndices);
-
-static void _AppendSystemBitmapIcons(HIMAGELIST himlDef, HIMAGELIST himlHot, HIMAGELIST himlDis, int cx, ClassicExplorerTheme theme, bool fIE55 = false)
-{
-	COLORREF crMask = RGB(255, 0, 255);
-	UINT idDef, idHot;
-	if (theme == CLASSIC_EXPLORER_2K)
-	{
-		if (fIE55)
-		{
-			if (cx <= 16) { idDef = IDB_2K_IE55_SHELL32_DEF_16; idHot = IDB_2K_IE55_SHELL32_HOT_16; }
-			else          { idDef = IDB_2K_IE55_SHELL32_DEF_20; idHot = IDB_2K_IE55_SHELL32_HOT_20; }
-		}
-		else
-		{
-			if (cx <= 16) { idDef = IDB_2K_SHELL32_DEF_16; idHot = IDB_2K_SHELL32_HOT_16; }
-			else          { idDef = IDB_2K_SHELL32_DEF_20; idHot = IDB_2K_SHELL32_HOT_20; }
-		}
-	}
-	else
-	{
-		if (cx <= 16) { idDef = IDB_SHELL32_DEF_16; idHot = IDB_SHELL32_HOT_16; }
-		else          { idDef = IDB_SHELL32_DEF_24; idHot = IDB_SHELL32_HOT_24; }
-	}
-
-	if (himlDef) _AppendShell32Icons(himlDef, idDef, cx, crMask, c_shell32GlyphIndices, c_nShell32Glyphs);
-	if (himlHot) _AppendShell32Icons(himlHot, idHot, cx, crMask, c_shell32GlyphIndices, c_nShell32Glyphs);
-	if (himlDis) _AppendShell32Icons(himlDis, idDef, cx, crMask, c_shell32GlyphIndices, c_nShell32Glyphs);
-}
+// (Disabled image list generation removed for NT4 — comctl32 handles disabled
+//  rendering natively using PSDPxax emboss for non-alpha bitmaps.)
 
 HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 {
-	// Read current settings (icon size, text mode, theme)
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
-	bool fSmallIcons = (settings.smallIcons == 1);
-	DWORD dwTextMode = (settings.textLabelMode <= 2) ? settings.textLabelMode : CE_TEXTMODE_SELECTIVE;
+	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
 
-	// Determine initial window style based on text mode:
-	// - "Show text labels" (mode 0): no TBSTYLE_LIST (text below icons)
-	// - "Selective text on right" (mode 1): TBSTYLE_LIST (text beside icons)
-	// - "No text labels" (mode 2): TBSTYLE_LIST doesn't matter, but keep it off
+	// Register and create the container window that holds both controls
+	EnsureBandClassRegistered(hInst);
+
+	m_hWndBand = CreateWindowEx(
+		0,
+		g_szBandClass,
+		nullptr,
+		WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+		0, 0, 0, 0,
+		hWndParent,
+		nullptr,
+		hInst,
+		nullptr);
+
+	if (!m_hWndBand)
+		return E_FAIL;
+
+	SetWindowLongPtr(m_hWndBand, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+
+	// Create the embedded address bar (ComboBoxEx) as a child of the container
+	m_addressBar.Create(m_hWndBand, nullptr, nullptr, WS_CHILD);
+	if (!m_addressBar.IsWindow())
+		return E_FAIL;
+
+	// NT4 toolbar: raised (non-flat), no rearranging, tooltips only (no text labels)
 	DWORD dwTbStyle = WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS |
-		TBSTYLE_FLAT | TBSTYLE_TOOLTIPS |
-		CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE | CCS_ADJUSTABLE;
+		TBSTYLE_TOOLTIPS | CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE;
 
-	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
-		dwTbStyle |= TBSTYLE_LIST;
-
-	// Create the toolbar control
+	// Create the toolbar control as a child of the container
 	m_hWndToolbar = CreateWindowEx(
 		0,
 		TOOLBARCLASSNAME,
 		nullptr,
 		dwTbStyle,
 		0, 0, 0, 0,
-		hWndParent,
+		m_hWndBand,
 		nullptr,
-		_AtlBaseModule.GetModuleInstance(),
+		hInst,
 		nullptr);
 
 	if (!m_hWndToolbar)
@@ -948,47 +683,36 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 	// Required: set the struct size for the toolbar
 	SendMessage(m_hWndToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 
-	// Extended styles: draw dropdown arrows
-	DWORD dwExStyle = TBSTYLE_EX_DRAWDDARROWS;
-	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
-		dwExStyle |= TBSTYLE_EX_MIXEDBUTTONS;
-	SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE, 0, dwExStyle);
+	// No text rows (NT4 toolbar uses tooltips only, no text labels)
+	SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 0, 0);
 
-	// Text rows: "Show text labels" = 1 row, "No text labels" = 0 rows,
-	// "Selective text" = doesn't matter (MIXEDBUTTONS handles it)
-	if (dwTextMode == CE_TEXTMODE_SHOWTEXT)
-		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 1, 0);
-	else if (dwTextMode == CE_TEXTMODE_NOTEXT)
-		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 0, 0);
+	// Load NT4 comctl32 bitmap strips (STD + VIEW) into a single image list
+	COLORREF crMask = RGB(192, 192, 192);  // NT4 bitmaps use button face gray as background
 
-	// Remember the active theme so we can detect switches later
-	m_lastTheme = settings.theme;
+	// NT4 always uses small (16x16) toolbar icons
+	bool fSmallIcons = true;
+	TB_SKIN_BITMAPS bmp = GetActiveBitmapIDs(fSmallIcons);
 
-	// Load toolbar bitmaps — select size based on settings, theme-aware
-	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-	COLORREF crMask = RGB(255, 0, 255);
+	// Create image list from the STD strip (15 glyphs)
+	m_hilDefault = _CreateImageListFromResource(hInst, bmp.idStd, bmp.cx, crMask);
+	if (!m_hilDefault)
+		return E_FAIL;
 
-	bool fIE55 = (settings.theme == CLASSIC_EXPLORER_2K && settings.ie55Style == 1);
-	TB_SKIN_BITMAPS bmp = GetActiveBitmapIDs(settings.theme, fSmallIcons, fIE55);
-
-	m_hilDefault = _CreateImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask);
-	m_hilHot     = _CreateImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask);
-
-	// Create disabled image list (algorithm differs per theme)
-	m_hilDisabled = _CreateDisabledImageList(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
-
-	// Append system bitmap icons for Properties, Cut, Copy, Paste, Folder Options
-	_AppendSystemBitmapIcons(m_hilDefault, m_hilHot, m_hilDisabled, bmp.cx, settings.theme, fIE55);
+	// Append the VIEW strip (12 glyphs) to the same image list
+	HBITMAP hbmView = (HBITMAP)LoadImage(hInst, MAKEINTRESOURCE(bmp.idView),
+		IMAGE_BITMAP, 0, 0, 0);
+	if (hbmView)
+	{
+		ImageList_AddMasked(m_hilDefault, hbmView, crMask);
+		DeleteObject(hbmView);
+	}
 
 	SendMessage(m_hWndToolbar, TB_SETIMAGELIST, 0, (LPARAM)m_hilDefault);
-	SendMessage(m_hWndToolbar, TB_SETHOTIMAGELIST, 0, (LPARAM)m_hilHot);
-	if (m_hilDisabled)
-		SendMessage(m_hWndToolbar, TB_SETDISABLEDIMAGELIST, 0, (LPARAM)m_hilDisabled);
 
 	// Pre-load all button strings into the toolbar's string pool
 	PreloadAllStrings();
 
-	// Populate buttons (from saved layout or defaults)
+	// Populate buttons (fixed NT4 layout)
 	InitToolbarButtons();
 
 	// Autosize the toolbar
@@ -996,6 +720,11 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 
 	// Install a subclass for message handling
 	SetWindowSubclass(m_hWndToolbar, ToolbarSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
+
+	// Show both child windows and perform initial layout
+	ShowWindow(m_addressBar.m_hWnd, SW_SHOW);
+	ShowWindow(m_hWndToolbar, SW_SHOW);
+	LayoutBandChildren();
 
 	// Install rebar subclass to intercept WM_COMMAND and WM_NOTIFY from our toolbar
 	InstallRebarHook();
@@ -1008,29 +737,13 @@ void CStandardToolbar::InitToolbarButtons()
 	if (!m_hWndToolbar)
 		return;
 
-	// Get the active skin's catalog and default layout
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
-	int nCatalog = 0;
-	const TB_BUTTON_DEF* pCatalog = GetActiveButtonCatalog(settings.theme, &nCatalog);
-	int nDefLayout = 0;
-	const int* pDefLayout = GetActiveDefaultLayout(settings.theme, &nDefLayout);
-
-	// Try to load saved layout from registry, fall back to defaults
-	int layout[MAX_SAVED_BUTTONS];
-	int nLayout = 0;
-	if (!LoadToolbarLayout(layout, &nLayout))
-	{
-		memcpy(layout, pDefLayout, nDefLayout * sizeof(int));
-		nLayout = nDefLayout;
-	}
-
-	// Build TBBUTTON array from layout
-	TBBUTTON tbb[MAX_SAVED_BUTTONS] = {};
+	// Build TBBUTTON array from fixed NT4 layout
+	TBBUTTON tbb[32] = {};
 	int nButtons = 0;
 
-	for (int i = 0; i < nLayout && nButtons < MAX_SAVED_BUTTONS; i++)
+	for (int i = 0; i < c_nDefaultLayout_NT4 && nButtons < 32; i++)
 	{
-		if (layout[i] == 0)
+		if (c_defaultLayout_NT4[i] == 0)
 		{
 			// Separator
 			tbb[nButtons].iBitmap = 0;
@@ -1043,29 +756,16 @@ void CStandardToolbar::InitToolbarButtons()
 		else
 		{
 			// Find button definition in catalog
-			int idx = FindButtonCatalogIndex(pCatalog, nCatalog, layout[i]);
+			int idx = FindButtonCatalogIndex(c_defaultLayout_NT4[i]);
 			if (idx < 0) continue;
 
-			const TB_BUTTON_DEF& def = pCatalog[idx];
+			const TB_BUTTON_DEF& def = c_tbAllButtons_NT4[idx];
 			tbb[nButtons].iBitmap = def.iBitmap;
 			tbb[nButtons].idCommand = def.idCommand;
 			tbb[nButtons].fsState = TBSTATE_ENABLED;
 			tbb[nButtons].fsStyle = def.fsStyle;
 			tbb[nButtons].dwData = 0;
 			tbb[nButtons].iString = m_iStringPool[idx];
-
-			// IE 5.5 style: add text to History button on 2K skin
-			if (settings.theme == CLASSIC_EXPLORER_2K && settings.ie55Style == 1
-				&& def.idCommand == TBIDM_HISTORY)
-			{
-				tbb[nButtons].fsStyle |= BTNS_SHOWTEXT;
-			}
-
-			// Win98 Views: make Views button a split dropdown (click cycles, arrow drops down)
-			if (settings.win98Views == 1 && def.idCommand == TBIDM_VIEWMENU)
-			{
-				tbb[nButtons].fsStyle = (tbb[nButtons].fsStyle & ~BTNS_WHOLEDROPDOWN) | BTNS_DROPDOWN;
-			}
 		}
 		nButtons++;
 	}
@@ -1080,20 +780,17 @@ void CStandardToolbar::DestroyToolbarWindow()
 		ImageList_Destroy(m_hilDefault);
 		m_hilDefault = nullptr;
 	}
-	if (m_hilHot)
-	{
-		ImageList_Destroy(m_hilHot);
-		m_hilHot = nullptr;
-	}
-	if (m_hilDisabled)
-	{
-		ImageList_Destroy(m_hilDisabled);
-		m_hilDisabled = nullptr;
-	}
+	if (m_addressBar.IsWindow())
+		m_addressBar.DestroyWindow();
 	if (m_hWndToolbar && IsWindow(m_hWndToolbar))
 	{
 		DestroyWindow(m_hWndToolbar);
 		m_hWndToolbar = nullptr;
+	}
+	if (m_hWndBand && IsWindow(m_hWndBand))
+	{
+		DestroyWindow(m_hWndBand);
+		m_hWndBand = nullptr;
 	}
 }
 
@@ -1106,255 +803,16 @@ void CStandardToolbar::PreloadAllStrings()
 {
 	memset(m_iStringPool, -1, sizeof(m_iStringPool));
 
-	int nCatalog = 0;
-	const TB_BUTTON_DEF* pCatalog = GetActiveButtonCatalog(m_lastTheme, &nCatalog);
-
 	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-	for (int i = 0; i < nCatalog; i++)
+	for (int i = 0; i < c_nAllButtons_NT4; i++)
 	{
 		WCHAR szText[64] = {};
-		LoadStringW(hInst, pCatalog[i].idsString, szText, ARRAYSIZE(szText));
+		LoadStringW(hInst, c_tbAllButtons_NT4[i].idsString, szText, ARRAYSIZE(szText));
 		m_iStringPool[i] = (int)SendMessage(m_hWndToolbar, TB_ADDSTRING, 0, (LPARAM)szText);
 	}
 }
 
-// ================================================================================================
-// Save / Load toolbar layout to/from registry.
-// Layout is stored as a REG_BINARY array of DWORDs (command IDs, 0 = separator).
-//
-
-void CStandardToolbar::SaveToolbarLayout()
-{
-	if (!m_hWndToolbar)
-		return;
-
-	int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
-	if (nButtons <= 0 || nButtons > MAX_SAVED_BUTTONS)
-		return;
-
-	DWORD layout[MAX_SAVED_BUTTONS] = {};
-	for (int i = 0; i < nButtons; i++)
-	{
-		TBBUTTON tbb = {};
-		SendMessage(m_hWndToolbar, TB_GETBUTTON, i, (LPARAM)&tbb);
-		layout[i] = (tbb.fsStyle & BTNS_SEP) ? 0 : (DWORD)tbb.idCommand;
-	}
-
-	HKEY hKey;
-	if (RegCreateKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\kawapure\\ClassicExplorer",
-		0, nullptr, 0, KEY_WRITE, nullptr, &hKey, nullptr) == ERROR_SUCCESS)
-	{
-		RegSetValueExW(hKey, L"ToolbarLayout", 0, REG_BINARY,
-			(const BYTE*)layout, nButtons * sizeof(DWORD));
-		RegCloseKey(hKey);
-	}
-}
-
-bool CStandardToolbar::LoadToolbarLayout(int* pLayout, int* pCount)
-{
-	*pCount = 0;
-
-	HKEY hKey;
-	if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\kawapure\\ClassicExplorer",
-		0, KEY_READ, &hKey) != ERROR_SUCCESS)
-		return false;
-
-	DWORD cbData = MAX_SAVED_BUTTONS * sizeof(DWORD);
-	DWORD buf[MAX_SAVED_BUTTONS] = {};
-	DWORD dwType = 0;
-
-	LSTATUS ls = RegQueryValueExW(hKey, L"ToolbarLayout", nullptr, &dwType,
-		(BYTE*)buf, &cbData);
-	RegCloseKey(hKey);
-
-	if (ls != ERROR_SUCCESS || dwType != REG_BINARY || cbData < sizeof(DWORD))
-		return false;
-
-	int n = (int)(cbData / sizeof(DWORD));
-	if (n > MAX_SAVED_BUTTONS)
-		n = MAX_SAVED_BUTTONS;
-
-	for (int i = 0; i < n; i++)
-		pLayout[i] = (int)buf[i];
-
-	*pCount = n;
-	return true;
-}
-
-void CStandardToolbar::DeleteSavedToolbarLayout()
-{
-	HKEY hKey;
-	if (RegOpenKeyExW(HKEY_CURRENT_USER, L"SOFTWARE\\kawapure\\ClassicExplorer",
-		0, KEY_WRITE, &hKey) == ERROR_SUCCESS)
-	{
-		RegDeleteValueW(hKey, L"ToolbarLayout");
-		RegCloseKey(hKey);
-	}
-}
-
-// ================================================================================================
-// TB_CUSTOMIZE notification handlers
-// Ported from Windows XP browseui itbar.cpp TOOLSBANDCLASS.
-//
-
-void CStandardToolbar::OnBeginCustomize(HWND hCustDlg)
-{
-	// Check if the child dialog already exists (TBN_INITCUSTOMIZE is re-sent on Reset)
-	if (m_hwndCustomizeChild && IsWindow(m_hwndCustomizeChild))
-		return;
-
-	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-	m_hwndCustomizeChild = CreateDialogW(hInst,
-		MAKEINTRESOURCEW(IDD_CUSTOMIZE_TOOLBAR), hCustDlg, CustomizeChildDlgProc);
-
-	if (!m_hwndCustomizeChild)
-		return;
-
-	// Enlarge the comctl32 customize dialog to make room for our child dialog
-	RECT rcCustWnd, rcCustClient, rcChild;
-	GetWindowRect(hCustDlg, &rcCustWnd);
-	GetClientRect(hCustDlg, &rcCustClient);
-	GetWindowRect(m_hwndCustomizeChild, &rcChild);
-
-	int childHeight = rcChild.bottom - rcChild.top;
-	int custWidth = rcCustWnd.right - rcCustWnd.left;
-	int custHeight = rcCustWnd.bottom - rcCustWnd.top;
-
-	SetWindowPos(hCustDlg, nullptr,
-		rcCustWnd.left, rcCustWnd.top,
-		custWidth, custHeight + childHeight,
-		SWP_NOZORDER);
-
-	// Position our child dialog at the bottom of the original client area
-	SetWindowPos(m_hwndCustomizeChild, HWND_TOP,
-		rcCustClient.left, rcCustClient.bottom,
-		0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-}
-
-void CStandardToolbar::OnEndCustomize()
-{
-	SaveToolbarLayout();
-	m_hwndCustomizeChild = nullptr;
-	UpdateButtonStates();
-
-	// Notify the rebar parent to recalculate band sizes
-	HWND hRebar = GetParent(m_hWndToolbar);
-	if (hRebar && IsWindow(hRebar))
-	{
-		int nBands = (int)SendMessage(hRebar, RB_GETBANDCOUNT, 0, 0);
-		for (int i = 0; i < nBands; i++)
-		{
-			REBARBANDINFO rbi = { sizeof(rbi) };
-			rbi.fMask = RBBIM_CHILD;
-			SendMessage(hRebar, RB_GETBANDINFO, i, (LPARAM)&rbi);
-			if (rbi.hwndChild == m_hWndToolbar)
-			{
-				DESKBANDINFO dbi = {};
-				dbi.dwMask = DBIM_MINSIZE | DBIM_ACTUAL;
-				GetBandInfo(0, 0, &dbi);
-
-				rbi.fMask = RBBIM_CHILDSIZE;
-				rbi.cxMinChild = dbi.ptMinSize.x;
-				rbi.cyMinChild = dbi.ptMinSize.y;
-				SendMessage(hRebar, RB_SETBANDINFO, i, (LPARAM)&rbi);
-				break;
-			}
-		}
-	}
-}
-
-LRESULT CStandardToolbar::OnGetButtonInfo(LPNMTOOLBAR ptbn)
-{
-	int nCatalog = 0;
-	const TB_BUTTON_DEF* pCatalog = GetActiveButtonCatalog(m_lastTheme, &nCatalog);
-
-	if (ptbn->iItem >= 0 && ptbn->iItem < nCatalog)
-	{
-		const TB_BUTTON_DEF& def = pCatalog[ptbn->iItem];
-
-		ptbn->tbButton.iBitmap = def.iBitmap;
-		ptbn->tbButton.idCommand = def.idCommand;
-		ptbn->tbButton.fsState = TBSTATE_ENABLED;
-		ptbn->tbButton.fsStyle = def.fsStyle;
-		ptbn->tbButton.dwData = 0;
-		ptbn->tbButton.iString = m_iStringPool[ptbn->iItem];
-
-		// Also fill pszText for the customize dialog's "Available buttons" list
-		if (ptbn->pszText && ptbn->cchText > 0)
-		{
-			WCHAR szText[64] = {};
-			LoadStringW(_AtlBaseModule.GetModuleInstance(), def.idsString, szText, ARRAYSIZE(szText));
-			wcsncpy_s(ptbn->pszText, ptbn->cchText, szText, _TRUNCATE);
-		}
-
-		return TRUE;
-	}
-	return FALSE;
-}
-
-LRESULT CStandardToolbar::OnReset()
-{
-	// Delete saved layout from registry
-	DeleteSavedToolbarLayout();
-
-	// Get the current skin's defaults
-	TB_SKIN_DEFAULTS skinDef = GetDefaultSettings(m_lastTheme);
-	int nCatalog = 0;
-	const TB_BUTTON_DEF* pCatalog = GetActiveButtonCatalog(m_lastTheme, &nCatalog);
-	int nDefLayout = 0;
-	const int* pDefLayout = GetActiveDefaultLayout(m_lastTheme, &nDefLayout);
-
-	// Reset text/icon settings to the current skin's defaults
-	CEUtil::CESettings resetSettings(CLASSIC_EXPLORER_NONE, -1, -1, -1,
-		skinDef.smallIcons, skinDef.textLabelMode, 0);
-	CEUtil::WriteCESettings(resetSettings);
-
-	// Update child dialog combo selections to reflect defaults
-	if (m_hwndCustomizeChild && IsWindow(m_hwndCustomizeChild))
-	{
-		_SetComboSelection(GetDlgItem(m_hwndCustomizeChild, IDC_SHOWTEXT),
-			_TextModeToIds(skinDef.textLabelMode));
-		_SetComboSelection(GetDlgItem(m_hwndCustomizeChild, IDC_SMALLICONS),
-			skinDef.smallIcons ? IDS_SMALLICONS : IDS_LARGEICONS);
-		SendMessage(GetDlgItem(m_hwndCustomizeChild, IDC_IE55STYLE), BM_SETCHECK, BST_UNCHECKED, 0);
-		SendMessage(GetDlgItem(m_hwndCustomizeChild, IDC_WIN98VIEWS), BM_SETCHECK, BST_UNCHECKED, 0);
-	}
-
-	// Remove all buttons from the toolbar
-	int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
-	while (nButtons-- > 0)
-		SendMessage(m_hWndToolbar, TB_DELETEBUTTON, 0, 0);
-
-	// Re-add default buttons for this skin
-	TBBUTTON tbb[MAX_SAVED_BUTTONS] = {};
-	int nDefButtons = 0;
-
-	for (int i = 0; i < nDefLayout && nDefButtons < MAX_SAVED_BUTTONS; i++)
-	{
-		if (pDefLayout[i] == 0)
-		{
-			tbb[nDefButtons].fsStyle = BTNS_SEP;
-			tbb[nDefButtons].iString = -1;
-		}
-		else
-		{
-			int idx = FindButtonCatalogIndex(pCatalog, nCatalog, pDefLayout[i]);
-			if (idx < 0) continue;
-
-			const TB_BUTTON_DEF& def = pCatalog[idx];
-			tbb[nDefButtons].iBitmap = def.iBitmap;
-			tbb[nDefButtons].idCommand = def.idCommand;
-			tbb[nDefButtons].fsState = TBSTATE_ENABLED;
-			tbb[nDefButtons].fsStyle = def.fsStyle;
-			tbb[nDefButtons].iString = m_iStringPool[idx];
-		}
-		nDefButtons++;
-	}
-
-	SendMessage(m_hWndToolbar, TB_ADDBUTTONS, nDefButtons, (LPARAM)tbb);
-
-	return 0;  // Let comctl32 refresh the customize dialog lists
-}
+// (SaveToolbarLayout, LoadToolbarLayout, DeleteSavedToolbarLayout removed — NT4 uses fixed layout)
 
 // ================================================================================================
 // Button state management
@@ -1396,6 +854,9 @@ void CStandardToolbar::UpdateButtonStates()
 		}
 	}
 	SendMessage(m_hWndToolbar, TB_ENABLEBUTTON, TBIDM_PREVIOUSFOLDER, MAKELONG(bCanGoUp, 0));
+
+	// Sync view mode check buttons
+	UpdateViewModeChecks();
 
 	// Folders: sync the check state from the property bag.
 	// The IPropertyBag::Write vtable hook (BagWriteHook) handles reactive
@@ -1462,43 +923,8 @@ static LRESULT CALLBACK RebarSubclassProc(
 					pThis->ShowBackForwardMenu(idCmd, pnmtb);
 					return TBDDRET_DEFAULT;
 				}
-				else if (idCmd == TBIDM_VIEWMENU)
-				{
-					pThis->OnViewsDropdown(pnmtb);
-					return TBDDRET_DEFAULT;
-				}
 				break;
 			}
-
-			case TBN_INITCUSTOMIZE:
-			{
-				NMTBCUSTOMIZEDLG* pnm = reinterpret_cast<NMTBCUSTOMIZEDLG*>(lParam);
-				if (pnm->hDlg && IsWindow(pnm->hDlg))
-					pThis->OnBeginCustomize(pnm->hDlg);
-				return TBNRF_HIDEHELP;
-			}
-
-			case TBN_GETBUTTONINFOW:
-			{
-				NMTOOLBAR* ptbn = reinterpret_cast<NMTOOLBAR*>(lParam);
-				return pThis->OnGetButtonInfo(ptbn);
-			}
-
-			case TBN_QUERYINSERT:
-				return TRUE;
-
-			case TBN_QUERYDELETE:
-				return TRUE;
-
-			case TBN_RESET:
-				return pThis->OnReset();
-
-			case TBN_ENDADJUST:
-				pThis->OnEndCustomize();
-				break;
-
-			case TBN_TOOLBARCHANGE:
-				break;
 
 			case TBN_GETINFOTIP:
 			{
@@ -1528,38 +954,42 @@ void CStandardToolbar::HandleCommand(int idCmd)
 {
 	switch (idCmd)
 	{
-	case TBIDM_BACK:           OnBack(); break;
-	case TBIDM_FORWARD:        OnForward(); break;
-	case TBIDM_PREVIOUSFOLDER: OnUpOneLevel(); break;
-	case TBIDM_SEARCH:         OnSearch(); break;
-	case TBIDM_ALLFOLDERS:     OnFolders(); break;
-	case TBIDM_VIEWMENU:       CycleViewMode(); break;
-	case TBIDM_MOVETO:         OnMoveTo(); break;
-	case TBIDM_COPYTO:         OnCopyTo(); break;
-	case TBIDM_DELETE:          OnDelete(); break;
-	case TBIDM_UNDO:           OnUndo(); break;
-	case TBIDM_STOPDOWNLOAD:   OnStop(); break;
-	case TBIDM_REFRESH:        OnRefresh(); break;
-	case TBIDM_HOME:           OnHome(); break;
-	case TBIDM_CONNECT:        OnMapNetDrive(); break;
-	case TBIDM_DISCONNECT:     OnDisconnectNetDrive(); break;
-	case TBIDM_FAVORITES:      OnFavorites(); break;
-	case TBIDM_HISTORY:        OnHistory(); break;
-	case TBIDM_THEATER:        OnFullScreen(); break;
-	case TBIDM_PROPERTIES:     OnProperties(); break;
-	case TBIDM_CUT:            OnCut(); break;
-	case TBIDM_COPY:           OnCopy(); break;
-	case TBIDM_PASTE:          OnPaste(); break;
-	case TBIDM_FOLDEROPTIONS:  OnFolderOptions(); break;
+	case TBIDM_BACK:                OnBack(); break;
+	case TBIDM_FORWARD:             OnForward(); break;
+	case TBIDM_PREVIOUSFOLDER:      OnUpOneLevel(); break;
+	case TBIDM_SEARCH:              OnSearch(); break;
+	case TBIDM_ALLFOLDERS:          OnFolders(); break;
+	case TBIDM_CONNECT:             OnMapNetDrive(); break;
+	case TBIDM_DISCONNECT:          OnDisconnectNetDrive(); break;
+	case TBIDM_CUT:                 OnCut(); break;
+	case TBIDM_COPY:                OnCopy(); break;
+	case TBIDM_PASTE:               OnPaste(); break;
+	case TBIDM_UNDO:                OnUndo(); break;
+	case TBIDM_DELETE:              OnDelete(); break;
+	case TBIDM_PROPERTIES:          OnProperties(); break;
+	case TBIDM_STOPDOWNLOAD:        OnStop(); break;
+	case TBIDM_REFRESH:             OnRefresh(); break;
+	case TBIDM_HOME:                OnHome(); break;
+	case TBIDM_FAVORITES:           OnFavorites(); break;
+	case TBIDM_HISTORY:             OnHistory(); break;
+	case TBIDM_THEATER:             OnFullScreen(); break;
+	// NT4 view mode buttons (BTNS_CHECKGROUP)
+	case TBIDM_VIEW_LARGEICONS:     SetClassicViewMode(FVM_ICON); break;
+	case TBIDM_VIEW_SMALLICONS:     SetClassicViewMode(FVM_SMALLICON); break;
+	case TBIDM_VIEW_LIST:           SetClassicViewMode(FVM_LIST); break;
+	case TBIDM_VIEW_DETAILS:        SetClassicViewMode(FVM_DETAILS); break;
 	}
 }
 
 // Install the rebar subclass (called from CreateToolbarWindow after toolbar is created)
+// With the container window architecture, the rebar is the grandparent of the toolbar.
+// Most command routing is handled by BandContainerProc, but we still subclass the rebar
+// for any notifications that bubble up.
 void CStandardToolbar::InstallRebarHook()
 {
-	if (m_hWndToolbar)
+	if (m_hWndBand)
 	{
-		HWND hRebar = GetParent(m_hWndToolbar);
+		HWND hRebar = GetParent(m_hWndBand);
 		if (hRebar)
 		{
 			SetWindowSubclass(hRebar, RebarSubclassProc, (UINT_PTR)this,
@@ -1757,189 +1187,7 @@ void CStandardToolbar::OnFolderOptions()
 		L"shell32.dll,Options_RunDLL 0", nullptr, SW_SHOWNORMAL);
 }
 
-// ================================================================================================
-// Views dropdown menu
-//
-
-void CStandardToolbar::OnViewsDropdown(LPNMTOOLBAR pnmtb)
-{
-	if (!m_pShellBrowser || !m_hWndToolbar)
-		return;
-
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
-	bool f2KViews = (settings.theme == CLASSIC_EXPLORER_2K);
-
-	// Map current view to DefView command ID for radio check.
-	// On Win10/11, both Thumbnails (28751) and Icons (28750) report FVM_ICON;
-	// we use GetViewModeAndIconSize to tell them apart by icon pixel size.
-	UINT uCurrentCmd = 0;
-	CComPtr<IShellView> pView;
-	if (SUCCEEDED(m_pShellBrowser->QueryActiveShellView(&pView)))
-	{
-		CComQIPtr<IFolderView2> pFV2 = pView;
-		if (pFV2)
-		{
-			FOLDERVIEWMODE fvm = FVM_AUTO;
-			int iIconSize = 0;
-			if (SUCCEEDED(pFV2->GetViewModeAndIconSize(&fvm, &iIconSize)))
-			{
-				if (f2KViews)
-				{
-					// Shell converts FVM_ICON/32px to FVM_SMALLICON internally,
-					// so disambiguate by icon size: >=32 = Large Icons, <32 = Small Icons
-					switch (fvm)
-					{
-					case FVM_ICON:      uCurrentCmd = FVM_ICON;      break;
-					case FVM_SMALLICON: uCurrentCmd = (iIconSize >= 32) ? FVM_ICON : FVM_SMALLICON; break;
-					case FVM_LIST:      uCurrentCmd = FVM_LIST;       break;
-					case FVM_DETAILS:   uCurrentCmd = FVM_DETAILS;    break;
-					default:            uCurrentCmd = FVM_ICON;        break;
-					}
-				}
-				else
-				{
-					switch (fvm)
-					{
-					case FVM_THUMBNAIL: uCurrentCmd = DEFVIEW_VIEW_THUMBNAILS; break;
-					case FVM_TILE:      uCurrentCmd = DEFVIEW_VIEW_TILES;      break;
-					case FVM_LIST:      uCurrentCmd = DEFVIEW_VIEW_LIST;       break;
-					case FVM_DETAILS:   uCurrentCmd = DEFVIEW_VIEW_DETAILS;    break;
-					case FVM_ICON:
-						// Large icons (>48px) = Thumbnails, medium/small = Icons
-						uCurrentCmd = (iIconSize > 48) ? DEFVIEW_VIEW_THUMBNAILS : DEFVIEW_VIEW_ICONS;
-						break;
-					default:
-						uCurrentCmd = DEFVIEW_VIEW_ICONS;
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	// Build popup menu matching shell32's View submenu layout
-	HMENU hMenu = CreatePopupMenu();
-	if (!hMenu)
-		return;
-
-	if (f2KViews)
-	{
-		// Win2K: Large Icons, Small Icons, List, Details
-		// Use FVM_* enum values as menu command IDs (1-4)
-		AppendMenu(hMenu, MF_STRING, FVM_ICON,      L"Lar&ge Icons");
-		AppendMenu(hMenu, MF_STRING, FVM_SMALLICON,  L"S&mall Icons");
-		AppendMenu(hMenu, MF_STRING, FVM_LIST,       L"&List");
-		AppendMenu(hMenu, MF_STRING, FVM_DETAILS,    L"&Details");
-
-		if (uCurrentCmd)
-			CheckMenuRadioItem(hMenu, FVM_ICON, FVM_DETAILS,
-				uCurrentCmd, MF_BYCOMMAND);
-	}
-	else
-	{
-		// XP: Thumbnails, Tiles, Icons, List, Details
-		AppendMenu(hMenu, MF_STRING, DEFVIEW_VIEW_THUMBNAILS, L"T&humbnails");
-		AppendMenu(hMenu, MF_STRING, DEFVIEW_VIEW_TILES,      L"Tile&s");
-		AppendMenu(hMenu, MF_STRING, DEFVIEW_VIEW_ICONS,      L"Ico&ns");
-		AppendMenu(hMenu, MF_STRING, DEFVIEW_VIEW_LIST,       L"&List");
-		AppendMenu(hMenu, MF_STRING, DEFVIEW_VIEW_DETAILS,    L"&Details");
-
-		if (uCurrentCmd)
-			CheckMenuRadioItem(hMenu, DEFVIEW_VIEW_DETAILS, DEFVIEW_VIEW_LIST,
-				uCurrentCmd, MF_BYCOMMAND);
-	}
-
-	// Get button rect for positioning
-	RECT rcButton = {};
-	SendMessage(m_hWndToolbar, TB_GETRECT, TBIDM_VIEWMENU, (LPARAM)&rcButton);
-	MapWindowPoints(m_hWndToolbar, HWND_DESKTOP, (LPPOINT)&rcButton, 2);
-
-	UINT uCmd = TrackPopupMenuEx(
-		hMenu,
-		TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN,
-		rcButton.left, rcButton.bottom,
-		m_hWndToolbar,
-		nullptr);
-
-	DestroyMenu(hMenu);
-
-	if (uCmd > 0)
-	{
-		if (f2KViews)
-			SetClassicViewMode((FOLDERVIEWMODE)uCmd);
-		else if (uCmd == DEFVIEW_VIEW_ICONS)
-			SetClassicViewMode(FVM_ICON);  // 32px icons (pre-Vista)
-		else
-			SendDefViewCommand(uCmd);
-	}
-}
-
-void CStandardToolbar::CycleViewMode()
-{
-	// When the button itself is clicked (not the dropdown), cycle through view modes.
-	// 98 style: Large Icons -> Small Icons -> List -> Details -> Large Icons
-	// XP style: Thumbnails -> Tiles -> Icons -> List -> Details -> Thumbnails
-	if (!m_pShellBrowser)
-		return;
-
-	CComPtr<IShellView> pView;
-	if (FAILED(m_pShellBrowser->QueryActiveShellView(&pView)))
-		return;
-
-	CComQIPtr<IFolderView2> pFV2 = pView;
-	if (!pFV2)
-		return;
-
-	FOLDERVIEWMODE fvm = FVM_AUTO;
-	int iIconSize = 0;
-	if (FAILED(pFV2->GetViewModeAndIconSize(&fvm, &iIconSize)))
-		return;
-
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
-
-	if (settings.win98Views == 1)
-	{
-		// 98 cycle: Large Icons -> Small Icons -> List -> Details -> Large Icons
-		// Shell converts FVM_ICON/32px to FVM_SMALLICON, so disambiguate by icon size
-		FOLDERVIEWMODE nextFvm;
-		bool isLargeIcons = (fvm == FVM_ICON) || (fvm == FVM_SMALLICON && iIconSize >= 32);
-		if (isLargeIcons)
-			nextFvm = FVM_SMALLICON;
-		else switch (fvm)
-		{
-		case FVM_SMALLICON: nextFvm = FVM_LIST;      break;
-		case FVM_LIST:      nextFvm = FVM_DETAILS;   break;
-		case FVM_DETAILS:   nextFvm = FVM_ICON;      break;
-		default:            nextFvm = FVM_ICON;      break;
-		}
-		SetClassicViewMode(nextFvm);
-	}
-	else
-	{
-		// XP cycle: Thumbnails -> Tiles -> Icons -> List -> Details -> Thumbnails
-		// Disambiguate FVM_ICON by icon size (>48 = Thumbnails/Large, <=48 = Icons/Medium)
-		int nextCmd;
-		if (fvm == FVM_ICON && iIconSize > 48)
-			nextCmd = DEFVIEW_VIEW_TILES;       // Thumbnails -> Tiles
-		else if (fvm == FVM_THUMBNAIL)
-			nextCmd = DEFVIEW_VIEW_TILES;       // Thumbnails -> Tiles
-		else if (fvm == FVM_TILE)
-		{
-			SetClassicViewMode(FVM_ICON);       // Tiles -> Icons (32px)
-			return;
-		}
-		else if (fvm == FVM_ICON)
-			nextCmd = DEFVIEW_VIEW_LIST;        // Icons -> List
-		else if (fvm == FVM_LIST)
-			nextCmd = DEFVIEW_VIEW_DETAILS;     // List -> Details
-		else if (fvm == FVM_DETAILS)
-			nextCmd = DEFVIEW_VIEW_THUMBNAILS;  // Details -> Thumbnails
-		else
-			nextCmd = DEFVIEW_VIEW_DETAILS;     // Default to Details
-
-		SendDefViewCommand(nextCmd);
-	}
-}
+// (OnViewsDropdown and CycleViewMode removed — NT4 uses individual view mode buttons)
 
 // ================================================================================================
 // Back/Forward history dropdown
@@ -2183,199 +1431,139 @@ bool CStandardToolbar::EnsureBrowserBag()
 	return m_pBrowserBag != nullptr;
 }
 
-// ================================================================================================
-// Text label mode application
-// Ported from Windows Server 2003 browseui _UpdateTextSettings / _UpdateToolsStyle.
-//
-
-void CStandardToolbar::ApplyTextLabelMode(DWORD dwMode)
-{
-	if (!m_hWndToolbar)
-		return;
-
-	switch (dwMode)
-	{
-	case CE_TEXTMODE_SHOWTEXT:
-	{
-		// Show text labels: no TBSTYLE_LIST, text rows = 1
-		LONG style = GetWindowLong(m_hWndToolbar, GWL_STYLE);
-		SetWindowLong(m_hWndToolbar, GWL_STYLE, style & ~TBSTYLE_LIST);
-		SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE,
-			TBSTYLE_EX_MIXEDBUTTONS, 0);
-		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 1, 0);
-		break;
-	}
-
-	case CE_TEXTMODE_SELECTIVE:
-	{
-		// Selective text on right: TBSTYLE_LIST + MIXEDBUTTONS
-		LONG style = GetWindowLong(m_hWndToolbar, GWL_STYLE);
-		SetWindowLong(m_hWndToolbar, GWL_STYLE, style | TBSTYLE_LIST);
-		SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE,
-			TBSTYLE_EX_MIXEDBUTTONS, TBSTYLE_EX_MIXEDBUTTONS);
-		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 1, 0);
-		break;
-	}
-
-	case CE_TEXTMODE_NOTEXT:
-	{
-		// No text labels: text rows = 0
-		LONG style = GetWindowLong(m_hWndToolbar, GWL_STYLE);
-		SetWindowLong(m_hWndToolbar, GWL_STYLE, style & ~TBSTYLE_LIST);
-		SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE,
-			TBSTYLE_EX_MIXEDBUTTONS, 0);
-		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 0, 0);
-		break;
-	}
-	}
-
-	// Force toolbar to recalculate layout
-	SendMessage(m_hWndToolbar, TB_AUTOSIZE, 0, 0);
-	InvalidateRect(m_hWndToolbar, nullptr, TRUE);
-}
+// (ApplyTextLabelMode, RebuildImageLists, ReloadSettings removed — NT4 uses fixed layout and style)
 
 // ================================================================================================
-// Rebuild image lists (called when icon size or theme changes).
+// LayoutBandChildren: Position the combobox and toolbar inside the container band.
+// Layout: [ComboBoxEx | gap | Toolbar buttons]
 //
 
-void CStandardToolbar::RebuildImageLists()
+void CStandardToolbar::LayoutBandChildren()
 {
-	if (!m_hWndToolbar)
+	if (!m_hWndBand)
 		return;
 
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
-	bool fSmallIcons = (settings.smallIcons == 1);
+	RECT rcBand = {};
+	GetClientRect(m_hWndBand, &rcBand);
+	int bandW = rcBand.right;
+	int bandH = rcBand.bottom;
 
-	HINSTANCE hInst = _AtlBaseModule.GetModuleInstance();
-	COLORREF crMask = RGB(255, 0, 255);
-
-	bool fIE55 = (settings.theme == CLASSIC_EXPLORER_2K && settings.ie55Style == 1);
-	TB_SKIN_BITMAPS bmp = GetActiveBitmapIDs(settings.theme, fSmallIcons, fIE55);
-
-	// Destroy old image lists
-	if (m_hilDefault) { ImageList_Destroy(m_hilDefault); m_hilDefault = nullptr; }
-	if (m_hilHot)     { ImageList_Destroy(m_hilHot);     m_hilHot = nullptr; }
-	if (m_hilDisabled){ ImageList_Destroy(m_hilDisabled); m_hilDisabled = nullptr; }
-
-	// Create new ones
-	m_hilDefault  = _CreateImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask);
-	m_hilHot      = _CreateImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask);
-	m_hilDisabled = _CreateDisabledImageList(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
-
-	// Append system bitmap icons for Properties, Cut, Copy, Paste, Folder Options
-	_AppendSystemBitmapIcons(m_hilDefault, m_hilHot, m_hilDisabled, bmp.cx, settings.theme, fIE55);
-
-	SendMessage(m_hWndToolbar, TB_SETIMAGELIST, 0, (LPARAM)m_hilDefault);
-	SendMessage(m_hWndToolbar, TB_SETHOTIMAGELIST, 0, (LPARAM)m_hilHot);
-	if (m_hilDisabled)
-		SendMessage(m_hWndToolbar, TB_SETDISABLEDIMAGELIST, 0, (LPARAM)m_hilDisabled);
-
-	SendMessage(m_hWndToolbar, TB_AUTOSIZE, 0, 0);
-	InvalidateRect(m_hWndToolbar, nullptr, TRUE);
-}
-
-// ================================================================================================
-// ReloadSettings: Re-read settings from registry and update the toolbar live.
-// Called when the user changes settings via the Customize Toolbar dialog.
-//
-
-void CStandardToolbar::ReloadSettings()
-{
-	if (!m_hWndToolbar)
+	if (bandW <= 0 || bandH <= 0)
 		return;
 
-	CEUtil::CESettings settings = CEUtil::GetCESettings();
+	constexpr int GAP = 4;  // gap between combobox and toolbar
 
-	// Detect theme switch — reset toolbar layout and settings to new skin's defaults
-	if (m_lastTheme != CLASSIC_EXPLORER_NONE && settings.theme != m_lastTheme)
+	// NT4 combobox width: LOGPIXELSY * 2 (2 logical inches, 192px @ 96 DPI)
+	if (m_comboWidth == 0)
 	{
-		// Delete saved layout so InitToolbarButtons loads the new skin's defaults
-		DeleteSavedToolbarLayout();
-
-		// Write the new skin's default icon size and text mode to registry
-		TB_SKIN_DEFAULTS skinDef = GetDefaultSettings(settings.theme);
-		CEUtil::CESettings newSettings(
-			settings.theme,
-			settings.showGoButton,
-			settings.showAddressLabel,
-			settings.showFullAddress,
-			skinDef.smallIcons,
-			skinDef.textLabelMode);
-		CEUtil::WriteCESettings(newSettings);
-
-		// Re-read settings with the newly written defaults
-		settings = CEUtil::GetCESettings();
-
-		// Remove all existing buttons
-		int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
-		for (int i = nButtons - 1; i >= 0; i--)
-			SendMessage(m_hWndToolbar, TB_DELETEBUTTON, i, 0);
-
-		// Rebuild image lists for the new theme
-		m_lastTheme = settings.theme;
-		RebuildImageLists();
-
-		// Re-populate with new skin's default layout
-		PreloadAllStrings();
-		InitToolbarButtons();
+		HDC hdc = GetDC(nullptr);
+		m_comboWidth = GetDeviceCaps(hdc, LOGPIXELSY) * 2;
+		ReleaseDC(nullptr, hdc);
 	}
-	else
-	{
-		// Normal settings change (no theme switch) — just rebuild image lists
-		RebuildImageLists();
-	}
+	int comboW = m_comboWidth;
 
-	// Apply text label mode
-	DWORD dwTextMode = (settings.textLabelMode <= 2) ? settings.textLabelMode : CE_TEXTMODE_SELECTIVE;
-	ApplyTextLabelMode(dwTextMode);
-
-	// Apply IE 5.5 style: toggle BTNS_SHOWTEXT on the History button (2K only)
-	if (settings.theme == CLASSIC_EXPLORER_2K)
+	// Get actual toolbar width from button rects
+	int tbWidth = 0;
+	if (m_hWndToolbar)
 	{
 		int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
-		for (int i = 0; i < nButtons; i++)
+		if (nButtons > 0)
 		{
-			TBBUTTON tbb = {};
-			SendMessage(m_hWndToolbar, TB_GETBUTTON, i, (LPARAM)&tbb);
-			if (tbb.idCommand == TBIDM_HISTORY)
-			{
-				TBBUTTONINFO tbi = { sizeof(tbi) };
-				tbi.dwMask = TBIF_STYLE;
-				tbi.fsStyle = tbb.fsStyle;
-				if (settings.ie55Style == 1)
-					tbi.fsStyle |= BTNS_SHOWTEXT;
-				else
-					tbi.fsStyle &= ~BTNS_SHOWTEXT;
-				SendMessage(m_hWndToolbar, TB_SETBUTTONINFO, TBIDM_HISTORY, (LPARAM)&tbi);
-				break;
-			}
+			RECT rcLast = {};
+			SendMessage(m_hWndToolbar, TB_GETITEMRECT, nButtons - 1, (LPARAM)&rcLast);
+			tbWidth = rcLast.right;
 		}
 	}
 
-	// Notify the rebar parent to recalculate band sizes
-	HWND hRebar = GetParent(m_hWndToolbar);
-	if (hRebar && IsWindow(hRebar))
+	// Position the CAddressBar wrapper window (fixed width, left side)
+	HWND hAddrWnd = m_addressBar.m_hWnd;
+	if (hAddrWnd && IsWindow(hAddrWnd))
 	{
-		// Find our band index and update its size
-		int nBands = (int)SendMessage(hRebar, RB_GETBANDCOUNT, 0, 0);
-		for (int i = 0; i < nBands; i++)
-		{
-			REBARBANDINFO rbi = { sizeof(rbi) };
-			rbi.fMask = RBBIM_CHILD;
-			SendMessage(hRebar, RB_GETBANDINFO, i, (LPARAM)&rbi);
-			if (rbi.hwndChild == m_hWndToolbar)
-			{
-				// Force rebar to re-query band size
-				DESKBANDINFO dbi = {};
-				dbi.dwMask = DBIM_MINSIZE | DBIM_ACTUAL;
-				GetBandInfo(0, 0, &dbi);
+		// Vertically center the combobox within the band (NT4: PositionDrivesCombo)
+		RECT rcCombo = {};
+		GetWindowRect(hAddrWnd, &rcCombo);
+		int comboH = rcCombo.bottom - rcCombo.top;
+		if (comboH < 22) comboH = 22;
+		int comboY = (bandH - comboH) / 2;
+		if (comboY < 0) comboY = 0;
+		SetWindowPos(hAddrWnd, nullptr, 0, comboY, comboW, comboH,
+			SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 
-				rbi.fMask = RBBIM_CHILDSIZE;
-				rbi.cxMinChild = dbi.ptMinSize.x;
-				rbi.cyMinChild = dbi.ptMinSize.y;
-				SendMessage(hRebar, RB_SETBANDINFO, i, (LPARAM)&rbi);
-				break;
-			}
+		// Resize the ComboBoxEx to fill the wrapper (drop-down uses comboW for height like NT4)
+		HWND hCombo = m_addressBar.GetToolbar();
+		if (hCombo && IsWindow(hCombo))
+		{
+			SetWindowPos(hCombo, nullptr, 0, 0, comboW, comboW,
+				SWP_NOZORDER | SWP_NOACTIVATE);
 		}
 	}
+
+	// Position the toolbar to the right of the combobox
+	if (m_hWndToolbar && IsWindow(m_hWndToolbar))
+	{
+		int tbX = comboW + GAP;
+		// Get toolbar button height for vertical centering
+		int tbHeight = bandH;
+		RECT rcBtn = {};
+		if (SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0))
+		{
+			SendMessage(m_hWndToolbar, TB_GETITEMRECT, 0, (LPARAM)&rcBtn);
+			tbHeight = rcBtn.bottom - rcBtn.top;
+		}
+		int tbY = (bandH - tbHeight) / 2;
+		if (tbY < 0) tbY = 0;
+		SetWindowPos(m_hWndToolbar, nullptr, tbX, tbY, tbWidth, tbHeight,
+			SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+}
+
+// ================================================================================================
+// UpdateViewModeChecks: sync the BTNS_CHECKGROUP view mode buttons with the
+// current folder's view mode. Called from UpdateButtonStates on each navigation.
+//
+
+void CStandardToolbar::UpdateViewModeChecks()
+{
+	if (!m_hWndToolbar || !m_pShellBrowser)
+		return;
+
+	CComPtr<IShellView> pView;
+	if (FAILED(m_pShellBrowser->QueryActiveShellView(&pView)))
+		return;
+
+	CComQIPtr<IFolderView2> pFV2 = pView;
+	if (!pFV2)
+		return;
+
+	FOLDERVIEWMODE fvm = FVM_AUTO;
+	int iIconSize = 0;
+	if (FAILED(pFV2->GetViewModeAndIconSize(&fvm, &iIconSize)))
+		return;
+
+	int checkedCmd = 0;
+	switch (fvm)
+	{
+	case FVM_ICON:
+		// FVM_ICON with >=32px = Large Icons, <32px = treat as Small Icons
+		checkedCmd = (iIconSize >= 32) ? TBIDM_VIEW_LARGEICONS : TBIDM_VIEW_SMALLICONS;
+		break;
+	case FVM_SMALLICON:
+		// Shell converts 32px FVM_ICON to FVM_SMALLICON; disambiguate by size
+		checkedCmd = (iIconSize >= 32) ? TBIDM_VIEW_LARGEICONS : TBIDM_VIEW_SMALLICONS;
+		break;
+	case FVM_LIST:
+		checkedCmd = TBIDM_VIEW_LIST;
+		break;
+	case FVM_DETAILS:
+		checkedCmd = TBIDM_VIEW_DETAILS;
+		break;
+	default:
+		checkedCmd = TBIDM_VIEW_LARGEICONS;
+		break;
+	}
+
+	SendMessage(m_hWndToolbar, TB_CHECKBUTTON, TBIDM_VIEW_LARGEICONS, MAKELONG(checkedCmd == TBIDM_VIEW_LARGEICONS, 0));
+	SendMessage(m_hWndToolbar, TB_CHECKBUTTON, TBIDM_VIEW_SMALLICONS, MAKELONG(checkedCmd == TBIDM_VIEW_SMALLICONS, 0));
+	SendMessage(m_hWndToolbar, TB_CHECKBUTTON, TBIDM_VIEW_LIST, MAKELONG(checkedCmd == TBIDM_VIEW_LIST, 0));
+	SendMessage(m_hWndToolbar, TB_CHECKBUTTON, TBIDM_VIEW_DETAILS, MAKELONG(checkedCmd == TBIDM_VIEW_DETAILS, 0));
 }

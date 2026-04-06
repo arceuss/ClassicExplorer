@@ -14,6 +14,10 @@
 #include "AddressBar.h"
 #include "winreg.h"
 
+#ifndef MAX_URL_STRING
+#define MAX_URL_STRING 2084
+#endif
+
 std::wstring CAddressBar::m_goText = L"";
 
 /*
@@ -60,7 +64,7 @@ LRESULT CAddressBar::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHa
 		WS_EX_TOOLWINDOW,
 		WC_COMBOBOXEXW,
 		nullptr,
-		WS_CHILD | WS_CLIPCHILDREN | WS_VISIBLE | WS_TABSTOP | CCS_NODIVIDER | CCS_NOMOVEY | CBS_OWNERDRAWFIXED,
+		WS_CHILD | WS_CLIPCHILDREN | WS_VISIBLE | WS_TABSTOP | CCS_NODIVIDER | CCS_NOMOVEY,
 		0, 0, 500, 250,
 		m_hWnd,
 		nullptr,
@@ -267,6 +271,15 @@ LRESULT CAddressBar::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHa
 			::SendMessageW(m_comboBoxEditCtl, EM_SETSEL, 0, -1);
 		}
 	}
+	else if (hdr->code == CBEN_DELETEITEM)
+	{
+		// Free the pidl stored in lParam when the combobox deletes an item
+		PNMCOMBOBOXEXW pnmce = (PNMCOMBOBOXEXW)lParam;
+		if (pnmce->ceItem.lParam)
+		{
+			CoTaskMemFree((LPITEMIDLIST)pnmce->ceItem.lParam);
+		}
+	}
 
 	return S_OK;
 }
@@ -387,6 +400,12 @@ LRESULT CALLBACK CAddressBar::RealComboboxSubclassProc(HWND hWnd, UINT uMsg, WPA
 {
 	CAddressBar *self = (CAddressBar *)dwRefData;
 
+	// Suppress navigation when Escape is pressed to close the dropdown (XP behavior)
+	if (uMsg == WM_KEYDOWN && wParam == VK_ESCAPE)
+	{
+		self->m_nOldSelection = CAddressBar::SEL_ESCAPE_PRESSED;
+	}
+
 	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
 }
 
@@ -405,6 +424,7 @@ void CAddressBar::SetBrowsers(CComPtr<IShellBrowser> pShellBrowser, CComPtr<IWeb
 HRESULT CAddressBar::HandleNavigate()
 {
 	RefreshCurrentAddress();
+	m_fDropdownValid = false;
 
 	return S_OK;
 }
@@ -537,6 +557,302 @@ HRESULT CAddressBar::RefreshCurrentAddress()
 	pKnownFolderManager.Release();
 
 	return S_OK;
+}
+
+// ============================================================================
+// Shell Namespace Dropdown (XP-style "Drives List")
+// Adapted from XPSP1 browseui CSNSList::_Populate.
+// ============================================================================
+
+static int CALLBACK _ComparePidls(void *p1, void *p2, LPARAM lParam)
+{
+	IShellFolder *psf = (IShellFolder *)lParam;
+	HRESULT hr = psf->CompareIDs(0, (PCUIDLIST_RELATIVE)p1, (PCUIDLIST_RELATIVE)p2);
+	return (short)HRESULT_CODE(hr);
+}
+
+void CAddressBar::PurgeDropdown()
+{
+	if (!m_toolbar) return;
+
+	// Save edit text before purging
+	WCHAR szBuf[MAX_URL_STRING] = {};
+	::GetWindowTextW(m_toolbar, szBuf, ARRAYSIZE(szBuf));
+	::SendMessageW(m_toolbar, WM_SETREDRAW, FALSE, 0);
+
+	int count = (int)::SendMessageW(m_toolbar, CB_GETCOUNT, 0, 0);
+	while (count > 0)
+	{
+		// CBEM_DELETEITEM triggers CBEN_DELETEITEM which frees the pidl
+		count = (int)::SendMessageW(m_toolbar, CBEM_DELETEITEM, 0, 0);
+	}
+
+	::SetWindowTextW(m_toolbar, szBuf);
+	::SendMessageW(m_toolbar, WM_SETREDRAW, TRUE, 0);
+	::InvalidateRect(m_toolbar, NULL, FALSE);
+	m_fDropdownValid = false;
+}
+
+void CAddressBar::AddPidlItem(PIDLIST_ABSOLUTE pidlFull, int iInsert, int iIndent)
+{
+	// Get display name and icons for the pidl
+	SHFILEINFOW sfi = {};
+	SHGetFileInfoW((LPCWSTR)pidlFull, 0, &sfi, sizeof(sfi),
+		SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_SYSICONINDEX | SHGFI_SMALLICON);
+
+	int iSelectedImage = 0;
+	{
+		SHFILEINFOW sfiSel = {};
+		SHGetFileInfoW((LPCWSTR)pidlFull, 0, &sfiSel, sizeof(sfiSel),
+			SHGFI_PIDL | SHGFI_SYSICONINDEX | SHGFI_SMALLICON | SHGFI_OPENICON);
+		iSelectedImage = sfiSel.iIcon;
+	}
+
+	COMBOBOXEXITEMW cei = {};
+	cei.mask = CBEIF_TEXT | CBEIF_IMAGE | CBEIF_SELECTEDIMAGE | CBEIF_INDENT | CBEIF_LPARAM;
+	cei.iItem = iInsert;
+	cei.iIndent = iIndent;
+	cei.pszText = sfi.szDisplayName;
+	cei.iImage = sfi.iIcon;
+	cei.iSelectedImage = iSelectedImage;
+	cei.lParam = (LPARAM)ILCloneFull(pidlFull);  // ownership transferred to combobox
+
+	::SendMessageW(m_toolbar, CBEM_INSERTITEMW, 0, (LPARAM)&cei);
+}
+
+void CAddressBar::FillOneLevel(PIDLIST_ABSOLUTE pidlParent, int iInsertAfter, int iIndent, int iDepth)
+{
+	CComPtr<IShellFolder> psfDesktop;
+	if (FAILED(SHGetDesktopFolder(&psfDesktop)))
+		return;
+
+	CComPtr<IShellFolder> psf;
+	if (ILIsEmpty((PCUIDLIST_RELATIVE)pidlParent))
+	{
+		psf = psfDesktop;
+	}
+	else
+	{
+		if (FAILED(psfDesktop->BindToObject((PCUIDLIST_RELATIVE)pidlParent, NULL, IID_IShellFolder, (void **)&psf)))
+			return;
+	}
+
+	CComPtr<IEnumIDList> penum;
+	if (psf->EnumObjects(NULL, SHCONTF_FOLDERS, &penum) != S_OK)
+		return;
+
+	// Collect child pidls into a DPA for sorting
+	HDPA hdpa = DPA_Create(8);
+	if (!hdpa) return;
+
+	PITEMID_CHILD pidlChild;
+	ULONG celt;
+	while (penum->Next(1, &pidlChild, &celt) == S_OK && celt == 1)
+	{
+		if (DPA_AppendPtr(hdpa, pidlChild) == -1)
+			CoTaskMemFree(pidlChild);
+	}
+
+	DPA_Sort(hdpa, _ComparePidls, (LPARAM)psf.p);
+
+	// Check what pidl is already at the insert point (to skip duplicates from the ancestor chain)
+	PIDLIST_ABSOLUTE pidlAlreadyThere = NULL;
+	{
+		COMBOBOXEXITEMW cbei = {};
+		cbei.mask = CBEIF_LPARAM;
+		cbei.iItem = iInsertAfter;
+		if (::SendMessageW(m_toolbar, CBEM_GETITEMW, 0, (LPARAM)&cbei))
+		{
+			COMBOBOXEXITEMW cbeiIndent = {};
+			cbeiIndent.mask = CBEIF_INDENT;
+			cbeiIndent.iItem = iInsertAfter;
+			::SendMessageW(m_toolbar, CBEM_GETITEMW, 0, (LPARAM)&cbeiIndent);
+			if (cbeiIndent.iIndent == iIndent)
+				pidlAlreadyThere = (PIDLIST_ABSOLUTE)cbei.lParam;
+		}
+	}
+
+	int iInsert = iInsertAfter;
+	int nItems = DPA_GetPtrCount(hdpa);
+	for (int i = 0; i < nItems; i++, iInsert++)
+	{
+		PCUITEMID_CHILD pidlRel = (PCUITEMID_CHILD)DPA_GetPtr(hdpa, i);
+		PIDLIST_ABSOLUTE pidlFull = ILCombine(pidlParent, pidlRel);
+		if (pidlFull)
+		{
+			// Skip the item that's already in the list (from the ancestor chain)
+			if (pidlAlreadyThere && ILIsEqual(pidlFull, pidlAlreadyThere))
+			{
+				iInsert += iDepth - iIndent;  // skip its expanded children too
+			}
+			else
+			{
+				AddPidlItem(pidlFull, iInsert, iIndent);
+			}
+			CoTaskMemFree(pidlFull);
+		}
+		CoTaskMemFree((void *)pidlRel);
+	}
+
+	DPA_Destroy(hdpa);
+}
+
+void CAddressBar::ExpandMyComputer(int iDepth)
+{
+	PIDLIST_ABSOLUTE pidlMyComp = NULL;
+	SHGetSpecialFolderLocation(NULL, CSIDL_DRIVES, &pidlMyComp);
+	if (!pidlMyComp) return;
+
+	int nCount = (int)::SendMessageW(m_toolbar, CB_GETCOUNT, 0, 0);
+	for (int i = 0; i < nCount; i++)
+	{
+		COMBOBOXEXITEMW cbei = {};
+		cbei.mask = CBEIF_LPARAM;
+		cbei.iItem = i;
+		if (::SendMessageW(m_toolbar, CBEM_GETITEMW, 0, (LPARAM)&cbei))
+		{
+			PIDLIST_ABSOLUTE pidl = (PIDLIST_ABSOLUTE)cbei.lParam;
+			if (pidl && ILIsEqual(pidl, pidlMyComp))
+			{
+				FillOneLevel(pidlMyComp, i + 1, 2, iDepth);
+				break;
+			}
+		}
+	}
+	CoTaskMemFree(pidlMyComp);
+}
+
+void CAddressBar::PopulateDropdown()
+{
+	if (m_fDropdownValid)
+		return;
+
+	// Get current location pidl
+	PIDLIST_ABSOLUTE pidlCur = NULL;
+	GetCurrentFolderPidl(&pidlCur);
+	if (!pidlCur) return;
+
+	::SendMessageW(m_toolbar, WM_SETREDRAW, FALSE, 0);
+
+	// Purge existing items (frees pidls via CBEN_DELETEITEM)
+	PurgeDropdown();
+
+	// Count depth of current pidl from root
+	int iDepth = 0;
+	{
+		PCUIDLIST_RELATIVE pidlWalk = (PCUIDLIST_RELATIVE)pidlCur;
+		while (!ILIsEmpty(pidlWalk))
+		{
+			pidlWalk = ILNext(pidlWalk);
+			iDepth++;
+		}
+	}
+
+	// Insert the current pidl and all its ancestors, from leaf to root.
+	// Each gets inserted at position 0, pushing previous ones down.
+	// Result: root at 0, current at iDepth.
+	{
+		PIDLIST_ABSOLUTE pidlTemp = ILCloneFull(pidlCur);
+		int iIndent = iDepth;
+		while (iIndent >= 0)
+		{
+			AddPidlItem(pidlTemp, 0, iIndent);
+			if (!ILRemoveLastID((PUIDLIST_RELATIVE)pidlTemp))
+				break;
+			iIndent--;
+		}
+		CoTaskMemFree(pidlTemp);
+	}
+
+	// Expand root (Desktop) children at indent=1
+	PIDLIST_ABSOLUTE pidlDesktop = NULL;
+	SHGetSpecialFolderLocation(NULL, CSIDL_DESKTOP, &pidlDesktop);
+	if (pidlDesktop)
+	{
+		FillOneLevel(pidlDesktop, 1, 1, iDepth);
+		CoTaskMemFree(pidlDesktop);
+	}
+
+	// Expand My Computer children (drives) at indent=2
+	ExpandMyComputer(iDepth);
+
+	// Find and select the current item by pidl match
+	int nCount = (int)::SendMessageW(m_toolbar, CB_GETCOUNT, 0, 0);
+	for (int i = 0; i < nCount; i++)
+	{
+		COMBOBOXEXITEMW cbei = {};
+		cbei.mask = CBEIF_LPARAM;
+		cbei.iItem = i;
+		if (::SendMessageW(m_toolbar, CBEM_GETITEMW, 0, (LPARAM)&cbei))
+		{
+			PIDLIST_ABSOLUTE pidl = (PIDLIST_ABSOLUTE)cbei.lParam;
+			if (pidl && ILIsEqual(pidl, pidlCur))
+			{
+				::SendMessageW(m_toolbar, CB_SETCURSEL, i, 0);
+				break;
+			}
+		}
+	}
+
+	::SendMessageW(m_toolbar, WM_SETREDRAW, TRUE, 0);
+	::InvalidateRect(m_toolbar, NULL, FALSE);
+
+	CoTaskMemFree(pidlCur);
+	m_fDropdownValid = true;
+}
+
+void CAddressBar::NavigateToSelection(int iSel)
+{
+	if (iSel < 0) return;
+
+	COMBOBOXEXITEMW cbei = {};
+	cbei.mask = CBEIF_LPARAM;
+	cbei.iItem = iSel;
+	if (!::SendMessageW(m_toolbar, CBEM_GETITEMW, 0, (LPARAM)&cbei))
+		return;
+
+	PIDLIST_ABSOLUTE pidl = (PIDLIST_ABSOLUTE)cbei.lParam;
+	if (!pidl || !m_pShellBrowser) return;
+
+	m_pShellBrowser->BrowseObject((PCUIDLIST_RELATIVE)pidl, 0);
+}
+
+LRESULT CAddressBar::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+{
+	UINT code = HIWORD(wParam);
+
+	if ((HWND)lParam == m_toolbar.m_hWnd || (HWND)lParam == m_comboBox)
+	{
+		if (code == CBN_DROPDOWN)
+		{
+			PopulateDropdown();
+			// Save current selection so we can detect changes on closeup (XP behavior)
+			m_nOldSelection = (int)::SendMessageW(m_toolbar, CB_GETCURSEL, 0, 0);
+			return 0;
+		}
+		else if (code == CBN_CLOSEUP)
+		{
+			// Navigate only if the selection actually changed (XP behavior)
+			int nSel = (int)::SendMessageW(m_toolbar, CB_GETCURSEL, 0, 0);
+			if (m_nOldSelection != SEL_ESCAPE_PRESSED &&
+				m_nOldSelection != nSel && nSel > -1)
+			{
+				NavigateToSelection(nSel);
+			}
+			else
+			{
+				// Restore the address text if user cancelled
+				RefreshCurrentAddress();
+			}
+			// Invalidate so next dropdown re-populates with fresh data
+			m_fDropdownValid = false;
+			m_nOldSelection = -1;
+			return 0;
+		}
+	}
+
+	bHandled = FALSE;
+	return 0;
 }
 
 /*

@@ -108,7 +108,6 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 
 	AppendMenuW(hMenu, (currentSettings.showGoButton ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7010, L"Show Go button");
 	AppendMenuW(hMenu, (currentSettings.showAddressLabel ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7011, L"Show Address label");
-	AppendMenuW(hMenu, (currentSettings.showFullAddress ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7012, L"Show full address");
 
 	AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
@@ -139,9 +138,6 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 		break;
 	case 7011:
 		CEUtil::WriteCESettings(CEUtil::CESettings(CLASSIC_EXPLORER_NONE, -1, !currentSettings.showAddressLabel, -1));
-		break;
-	case 7012:
-		CEUtil::WriteCESettings(CEUtil::CESettings(CLASSIC_EXPLORER_NONE, -1, -1, !currentSettings.showFullAddress));
 		break;
 	case 7020:
 	{

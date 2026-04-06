@@ -81,16 +81,14 @@ STDMETHODIMP CAddressBarHostBand::GetBandInfo(DWORD dwBandId, DWORD dwViewMode, 
 	{
 		if (pDbi->dwMask & DBIM_MINSIZE)
 		{
-			RECT rcComboBox;
-			GetWindowRect(m_addressBar.m_comboBox, &rcComboBox);
-
+			// NT4 hardcoded address bar height (22px combobox)
 			pDbi->ptMinSize.x = 150;
-			pDbi->ptMinSize.y = rcComboBox.bottom - rcComboBox.top;
+			pDbi->ptMinSize.y = 22;
 		}
 		if (pDbi->dwMask & DBIM_MAXSIZE)
 		{
 			pDbi->ptMaxSize.x = 0; // 0 = ignored
-			pDbi->ptMaxSize.y = -1; // -1 = unlimited
+			pDbi->ptMaxSize.y = 22; // NT4 fixed height
 		}
 		if (pDbi->dwMask & DBIM_INTEGRAL)
 		{
@@ -100,18 +98,14 @@ STDMETHODIMP CAddressBarHostBand::GetBandInfo(DWORD dwBandId, DWORD dwViewMode, 
 		}
 		if (pDbi->dwMask & DBIM_ACTUAL)
 		{
-			pDbi->ptActual.x = rc.right;
-			pDbi->ptActual.y = rc.bottom;
+			// NT4: request full rebar width so the address bar fills the row
+			pDbi->ptActual.x = 32000;
+			pDbi->ptActual.y = 22;
 		}
 		if (pDbi->dwMask & DBIM_TITLE)
 		{
-			CEUtil::CESettings cS = CEUtil::GetCESettings();
-			if (cS.showAddressLabel == 0) //Show no label
-			{
-				wcscpy_s(pDbi->wszTitle, L"");
-				return S_OK;
-			}
-			wcscpy_s(pDbi->wszTitle, m_addressText.c_str());
+			// NT4: no "Address" text label on the band
+			wcscpy_s(pDbi->wszTitle, L"");
 			return S_OK;
 		}
 		if (pDbi->dwMask & DBIM_BKCOLOR)

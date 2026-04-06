@@ -11,6 +11,8 @@
 
 #include <commctrl.h>
 #include <commoncontrols.h>
+#include <string>
+#include "../AddressBar/AddressBar.h"
 
 // ================================================================================================
 // Standard Buttons toolbar command IDs (from Windows Server 2003 itbdrop.h)
@@ -30,16 +32,18 @@
 #define TBIDM_ALLFOLDERS        0x133
 
 // Our own IDs for DefView-originated buttons (offset from 0x200 to avoid collision)
-#define TBIDM_VIEWMENU          0x200
-#define TBIDM_MOVETO            0x201
-#define TBIDM_COPYTO            0x202
 #define TBIDM_DELETE            0x203
 #define TBIDM_UNDO              0x204
 #define TBIDM_PROPERTIES        0x205
 #define TBIDM_CUT               0x206
 #define TBIDM_COPY              0x207
 #define TBIDM_PASTE             0x208
-#define TBIDM_FOLDEROPTIONS     0x209
+
+// NT4 view mode buttons (BTNS_CHECKGROUP)
+#define TBIDM_VIEW_LARGEICONS   0x210
+#define TBIDM_VIEW_SMALLICONS   0x211
+#define TBIDM_VIEW_LIST         0x212
+#define TBIDM_VIEW_DETAILS      0x213
 
 // Per-skin button catalogs, default layouts, bitmap IDs, and accessor functions
 #include "ToolbarConfigs.h"
@@ -65,20 +69,21 @@ private:
 	HWND                     m_hWndParent = nullptr;
 
 	// Toolbar control:
+	HWND                     m_hWndBand = nullptr;       // container window (band child)
 	HWND                     m_hWndToolbar = nullptr;
 	HIMAGELIST               m_hilDefault = nullptr;
-	HIMAGELIST               m_hilHot = nullptr;
-	HIMAGELIST               m_hilDisabled = nullptr;
+
+	// Embedded address bar (NT4: combobox is part of this band):
+	CAddressBar              m_addressBar;
+	int                      m_comboWidth = 0;           // NT4: LOGPIXELSY * 2 (computed at create time)
 
 	// State:
 	bool                     m_bShow = false;
 	BOOL                     m_bCanGoBack = FALSE;
 	BOOL                     m_bCanGoForward = FALSE;
-	ClassicExplorerTheme     m_lastTheme = CLASSIC_EXPLORER_NONE;
 
-	// Customize toolbar state:
-	int                      m_iStringPool[NUM_TOOLBAR_GLYPHS];  // pre-loaded string pool indices for all catalog buttons
-	HWND                     m_hwndCustomizeChild = nullptr; // embedded text/icon options child dialog
+	// Button string pool:
+	int                      m_iStringPool[NUM_TOOLBAR_GLYPHS];
 
 	// Internal helpers:
 	HRESULT CreateToolbarWindow(HWND hWndParent);
@@ -86,13 +91,7 @@ private:
 	void    PreloadAllStrings();
 	void    UpdateButtonStates();
 	void    DestroyToolbarWindow();
-	void    ApplyTextLabelMode(DWORD dwMode);
-	void    RebuildImageLists();
-
-	// Customize toolbar helpers:
-	void    SaveToolbarLayout();
-	bool    LoadToolbarLayout(int* pLayout, int* pCount);
-	void    DeleteSavedToolbarLayout();
+	void    UpdateViewModeChecks();
 
 	// Command handlers:
 	void    OnBack();
@@ -118,9 +117,6 @@ private:
 	void    OnPaste();
 	void    OnFolderOptions();
 
-	// View mode cycling:
-	void    CycleViewMode();
-
 	// Rebar subclass for command routing:
 	void    InstallRebarHook();
 
@@ -135,18 +131,10 @@ public:
 	HWND    GetToolbarHwnd() const;
 	void    HandleCommand(int idCmd);
 	void    ShowBackForwardMenu(int idCmd, LPNMTOOLBAR pnmtb);
-	void    OnViewsDropdown(LPNMTOOLBAR pnmtb);
 	void    SyncFoldersCheckState();  // called by BagWriteHook / ToolbarSubclassProc
 	bool    EnsureBrowserBag();       // lazy-init bag + hook; returns true if bag was just acquired
-
-	// TB_CUSTOMIZE notification handlers (called from rebar subclass proc):
-	void    OnBeginCustomize(HWND hCustDlg);
-	void    OnEndCustomize();
-	LRESULT OnGetButtonInfo(LPNMTOOLBAR ptbn);
-	LRESULT OnReset();
-
-	// Settings reload (called when user changes settings via Customize dialog):
-	void    ReloadSettings();
+	CAddressBar& GetAddressBar() { return m_addressBar; }
+	void    LayoutBandChildren();
 
 	DECLARE_REGISTRY_RESOURCEID_V2_WITHOUT_MODULE(IDR_CLASSICEXPLORER, CStandardToolbar)
 

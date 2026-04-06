@@ -15,7 +15,7 @@ CESettings GetCESettings()
 {
 	bool fShowGoButton = true;
 	bool fShowAddressLabel = true;
-	bool fShowFullAddress = true;
+	bool fShowFullAddress = false;  // NT4 didn't show full address paths
 	DWORD dwSmallIcons = 0;          // default: large icons
 	DWORD dwTextLabelMode = CE_TEXTMODE_SELECTIVE; // default: selective text on right
 	DWORD dwIE55Style = 0;           // default: off (IE6 style)
@@ -44,7 +44,7 @@ CESettings GetCESettings()
 		RegSetValueExW(hKey, L"TextLabelMode", 0, REG_DWORD, (BYTE*)&dwTextLabelMode, 4);
 		RegSetValueExW(hKey, L"IE55Style", 0, REG_DWORD, (BYTE*)&dwIE55Style, 4);
 		RegSetValueExW(hKey, L"Win98Views", 0, REG_DWORD, (BYTE*)&dwWin98Views, 4);
-		return CESettings(CLASSIC_EXPLORER_2K, 1, 1, 1, 0, CE_TEXTMODE_SELECTIVE, 0, 0);
+		return CESettings(CLASSIC_EXPLORER_2K, 1, 1, 0, 0, CE_TEXTMODE_SELECTIVE, 0, 0);
 	}
 	// Read settings
 	//WCHAR themeRead[8];
@@ -61,7 +61,8 @@ CESettings GetCESettings()
 	DWORD dwValueSize = sizeof(DWORD);
 	RegGetValueW(hKey, nullptr, L"ShowGoButton", RRF_RT_REG_DWORD, nullptr, &fShowGoButton, &dwValueSize);
 	RegGetValueW(hKey, nullptr, L"ShowAddressLabel", RRF_RT_REG_DWORD, nullptr, &fShowAddressLabel, &dwValueSize);
-	RegGetValueW(hKey, nullptr, L"ShowFullAddress", RRF_RT_REG_DWORD, nullptr, &fShowFullAddress, &dwValueSize);
+	// NT4 didn't show full address; force off regardless of registry
+	fShowFullAddress = false;
 
 	dwValueSize = sizeof(DWORD);
 	if (RegGetValueW(hKey, nullptr, L"SmallIcons", RRF_RT_REG_DWORD, nullptr, &dwSmallIcons, &dwValueSize) != ERROR_SUCCESS)
