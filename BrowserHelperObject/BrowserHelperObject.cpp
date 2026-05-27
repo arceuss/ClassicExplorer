@@ -34,20 +34,24 @@ HRESULT BrowserHelperObject::_DoUpdateWatermark(HWND listView)
 	FOLDERTYPEID curFolderType;
 	pType->GetFolderType(&curFolderType);
 
-	if (curFolderType == FOLDERTYPEID_Pictures)
+	CEUtil::CESettings currentSettings = CEUtil::GetCESettings();
+	if (currentSettings.folderBgs)
 	{
-		resourceId = IDB_BG_PICTURES_BLUE;
-		shouldUse = true;
-	}
-	else if (curFolderType == FOLDERTYPEID_Music)
-	{
-		resourceId = IDB_BG_MUSIC_BLUE;
-		shouldUse = true;
-	}
-	else if (curFolderType == FOLDERTYPEID_Videos)
-	{
-		resourceId = IDB_BG_VIDEOS_BLUE;
-		shouldUse = true;
+		if (curFolderType == FOLDERTYPEID_Pictures)
+		{
+			resourceId = IDB_BG_PICTURES_BLUE;
+			shouldUse = true;
+		}
+		else if (curFolderType == FOLDERTYPEID_Music)
+		{
+			resourceId = IDB_BG_MUSIC_BLUE;
+			shouldUse = true;
+		}
+		else if (curFolderType == FOLDERTYPEID_Videos)
+		{
+			resourceId = IDB_BG_VIDEOS_BLUE;
+			shouldUse = true;
+		}
 	}
 
 	if (shouldUse)

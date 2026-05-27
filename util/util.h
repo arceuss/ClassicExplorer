@@ -38,9 +38,10 @@ namespace CEUtil
 		DWORD textLabelMode = -1;     // CE_TEXTMODE_* values, default = CE_TEXTMODE_SELECTIVE
 		DWORD ie55Style = -1;         // 1 = IE 5.5 style (2K only: History shows text label)
 		DWORD win98Views = -1;        // 1 = 98-style split Views button (click cycles, arrow drops down)
+		DWORD folderBgs = -1;
 
 		CESettings(ClassicExplorerTheme t, int a, int b, int f,
-		           int icons = -1, int textMode = -1, int ie55 = -1, int w98views = -1)
+		           int icons = -1, int textMode = -1, int ie55 = -1, int w98views = -1, int _folderBgs = -1)
 		{
 			theme = t;
 			showGoButton = a;
@@ -50,6 +51,7 @@ namespace CEUtil
 			textLabelMode = textMode;
 			ie55Style = ie55;
 			win98Views = w98views;
+			folderBgs = _folderBgs;
 		}
 	};
 	CESettings GetCESettings();
