@@ -4,7 +4,7 @@
 
 
  /* File created by MIDL compiler version 8.01.0628 */
-/* at Mon Jan 18 20:14:07 2038
+/* at Mon Jan 18 21:14:07 2038
  */
 /* Compiler settings for ClassicExplorer.idl:
     Oicf, W1, Zp8, env=Win64 (32b run), target_arch=AMD64 8.01.0628 
@@ -73,6 +73,13 @@ typedef interface IBrowserHelperObject IBrowserHelperObject;
 #endif 	/* __IBrowserHelperObject_FWD_DEFINED__ */
 
 
+#ifndef __IStandardToolbar_FWD_DEFINED__
+#define __IStandardToolbar_FWD_DEFINED__
+typedef interface IStandardToolbar IStandardToolbar;
+
+#endif 	/* __IStandardToolbar_FWD_DEFINED__ */
+
+
 #ifndef __CAddressBarHostBand_FWD_DEFINED__
 #define __CAddressBarHostBand_FWD_DEFINED__
 
@@ -107,13 +114,6 @@ typedef struct BrowserHelperObject BrowserHelperObject;
 #endif /* __cplusplus */
 
 #endif 	/* __BrowserHelperObject_FWD_DEFINED__ */
-
-
-#ifndef __IStandardToolbar_FWD_DEFINED__
-#define __IStandardToolbar_FWD_DEFINED__
-typedef interface IStandardToolbar IStandardToolbar;
-
-#endif 	/* __IStandardToolbar_FWD_DEFINED__ */
 
 
 #ifndef __CStandardToolbar_FWD_DEFINED__
@@ -606,7 +606,10 @@ EXTERN_C const IID IID_IStandardToolbar;
         CONST_VTBL struct IStandardToolbarVtbl *lpVtbl;
     };
 
+    
+
 #ifdef COBJMACROS
+
 
 #define IStandardToolbar_QueryInterface(This,riid,ppvObject)	\
     ( (This)->lpVtbl -> QueryInterface(This,riid,ppvObject) ) 

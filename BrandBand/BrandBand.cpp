@@ -109,6 +109,7 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 	AppendMenuW(hMenu, (currentSettings.showGoButton ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7010, L"Show Go button");
 	AppendMenuW(hMenu, (currentSettings.showAddressLabel ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7011, L"Show Address label");
 	AppendMenuW(hMenu, (currentSettings.showFullAddress ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7012, L"Show full address");
+	AppendMenuW(hMenu, (currentSettings.folderBgs ? MF_CHECKED : MF_UNCHECKED) | MF_STRING, 7013, L"Show folder backgrounds");
 
 	AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
@@ -143,6 +144,9 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 	case 7012:
 		CEUtil::WriteCESettings(CEUtil::CESettings(CLASSIC_EXPLORER_NONE, -1, -1, !currentSettings.showFullAddress));
 		break;
+	case 7013:
+		CEUtil::WriteCESettings(CEUtil::CESettings(CLASSIC_EXPLORER_NONE, -1, -1, -1, -1, -1, -1, -1, !currentSettings.folderBgs));
+		return S_OK; // don't prompt restart
 	case 7020:
 	{
 		// Send customize toolbar message to the same Explorer window.
@@ -158,8 +162,7 @@ LRESULT CBrandBand::OnClick(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHand
 		return S_OK;  // Don't show the "restart" message for this
 	}
 	}
-	MessageBeep(0);
-	MessageBox(L"Open a new file explorer window to see the changes.");
+	MessageBoxW(L"Open a new file explorer window to see the changes.", L"Classic Explorer", MB_ICONINFORMATION);
 	return S_OK;
 }
 

@@ -20,6 +20,7 @@ CESettings GetCESettings()
 	DWORD dwTextLabelMode = CE_TEXTMODE_SELECTIVE; // default: selective text on right
 	DWORD dwIE55Style = 0;           // default: off (IE6 style)
 	DWORD dwWin98Views = 0;          // default: off (no split Views button)
+	DWORD dwFolderBgs = 1;           // default: on
 
 	ClassicExplorerTheme theme = CLASSIC_EXPLORER_2K;
 	HKEY hKey;
@@ -44,6 +45,7 @@ CESettings GetCESettings()
 		RegSetValueExW(hKey, L"TextLabelMode", 0, REG_DWORD, (BYTE*)&dwTextLabelMode, 4);
 		RegSetValueExW(hKey, L"IE55Style", 0, REG_DWORD, (BYTE*)&dwIE55Style, 4);
 		RegSetValueExW(hKey, L"Win98Views", 0, REG_DWORD, (BYTE*)&dwWin98Views, 4);
+		RegSetValueExW(hKey, L"FolderBGs", 0, REG_DWORD, (BYTE*)&dwFolderBgs, 4);
 		return CESettings(CLASSIC_EXPLORER_2K, 1, 1, 1, 0, CE_TEXTMODE_SELECTIVE, 0, 0);
 	}
 	// Read settings
@@ -75,10 +77,13 @@ CESettings GetCESettings()
 	dwValueSize = sizeof(DWORD);
 	if (RegGetValueW(hKey, nullptr, L"Win98Views", RRF_RT_REG_DWORD, nullptr, &dwWin98Views, &dwValueSize) != ERROR_SUCCESS)
 		dwWin98Views = 0;
+	dwValueSize = sizeof(DWORD);
+	if (RegGetValueW(hKey, nullptr, L"FolderBGs", RRF_RT_REG_DWORD, nullptr, &dwFolderBgs, &dwValueSize) != ERROR_SUCCESS)
+		dwFolderBgs = 1;
 
 	RegCloseKey(hKey);
 
-	return CESettings(theme, fShowGoButton, fShowAddressLabel, fShowFullAddress, dwSmallIcons, dwTextLabelMode, dwIE55Style, dwWin98Views);
+	return CESettings(theme, fShowGoButton, fShowAddressLabel, fShowFullAddress, dwSmallIcons, dwTextLabelMode, dwIE55Style, dwWin98Views, dwFolderBgs);
 }
 
 void WriteCESettings(CESettings& toWrite)
@@ -129,6 +134,10 @@ void WriteCESettings(CESettings& toWrite)
 	if (toWrite.win98Views != -1)
 	{
 		RegSetValueExW(hKey, L"Win98Views", 0, REG_DWORD, (BYTE*)&toWrite.win98Views, 4);
+	}
+	if (toWrite.folderBgs != -1)
+	{
+		RegSetValueExW(hKey, L"FolderBGs", 0, REG_DWORD, (BYTE*)&toWrite.folderBgs, 4);
 	}
 	RegCloseKey(hKey);
 }
