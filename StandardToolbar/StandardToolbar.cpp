@@ -39,6 +39,27 @@
 #define OLECMDID_NAVIGATEFORWARD 64
 #endif
 
+// Undocumented toolbar message used by the XP Explorer toolbar to tighten split-button padding.
+#ifndef TB_SETDROPDOWNGAP
+#define TB_SETDROPDOWNGAP (WM_USER + 100)
+#endif
+#ifndef TBSTYLE_EX_HIDECLIPPEDBUTTONS
+#define TBSTYLE_EX_HIDECLIPPEDBUTTONS 0x00000010
+#endif
+#ifndef TBSTYLE_EX_DOUBLEBUFFER
+#define TBSTYLE_EX_DOUBLEBUFFER 0x00000080
+#endif
+#ifndef COMCTL32_VERSION
+#define COMCTL32_VERSION 6
+#endif
+
+// XP browseui overrides the toolbar control's default separator width of 8.
+#define XP_CX_SEPARATOR 6
+#define XP_MAX_TB_WIDTH_LORES 38
+#define XP_MAX_TB_WIDTH_HIRES 60
+#define XP_TB_WIDTH_EXTRA 4
+#define XP_WIDTH_FACTOR 4
+
 // ================================================================================================
 // Travel Log interfaces (from IE Platform SDK tlogstg.h)
 // These are not included in the modern Windows SDK but are still supported by Explorer.
@@ -196,6 +217,55 @@ static UINT GetCustomizeToolbarMsg()
 	if (!g_uMsgCustomizeToolbar)
 		g_uMsgCustomizeToolbar = RegisterWindowMessageW(CE_WM_CUSTOMIZE_TOOLBAR_NAME);
 	return g_uMsgCustomizeToolbar;
+}
+
+static void ApplyToolbarBaseExtendedStyle(HWND hwndToolbar, ClassicExplorerTheme theme)
+{
+	if (!hwndToolbar)
+		return;
+
+	DWORD dwMask = TBSTYLE_EX_DRAWDDARROWS | TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER;
+	DWORD dwStyle = TBSTYLE_EX_DRAWDDARROWS;
+	if (theme == CLASSIC_EXPLORER_XP)
+		dwStyle |= TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER;
+	SendMessage(hwndToolbar, TB_SETEXTENDEDSTYLE, dwMask, dwStyle);
+}
+
+static void ApplyDropDownGap(HWND hwndToolbar, ClassicExplorerTheme theme)
+{
+	if (!hwndToolbar)
+		return;
+
+	int cxGap = (theme == CLASSIC_EXPLORER_XP)
+		? GetSystemMetrics(SM_CXEDGE) / 2
+		: GetSystemMetrics(SM_CXEDGE) * 2;
+	SendMessage(hwndToolbar, TB_SETDROPDOWNGAP, cxGap, 0);
+}
+
+static void ApplyComctlVersion(HWND hwndToolbar, ClassicExplorerTheme theme)
+{
+	if (hwndToolbar && theme == CLASSIC_EXPLORER_XP)
+		SendMessage(hwndToolbar, CCM_SETVERSION, COMCTL32_VERSION, 0);
+}
+
+static int GetSeparatorWidth(ClassicExplorerTheme theme)
+{
+	return (theme == CLASSIC_EXPLORER_XP) ? XP_CX_SEPARATOR : 0;
+}
+
+static int GetXpMaxButtonWidth()
+{
+	int cx = (GetSystemMetrics(SM_CXSCREEN) < 650) ? XP_MAX_TB_WIDTH_LORES : XP_MAX_TB_WIDTH_HIRES;
+	return cx + XP_TB_WIDTH_EXTRA * XP_WIDTH_FACTOR;
+}
+
+static void RecalcXpButtonWidths(HWND hwndToolbar, ClassicExplorerTheme theme)
+{
+	if (hwndToolbar && theme == CLASSIC_EXPLORER_XP)
+	{
+		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, 10));
+		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, GetXpMaxButtonWidth()));
+	}
 }
 
 // ================================================================================================
@@ -948,11 +1018,7 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 	// Required: set the struct size for the toolbar
 	SendMessage(m_hWndToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 
-	// Extended styles: draw dropdown arrows
-	DWORD dwExStyle = TBSTYLE_EX_DRAWDDARROWS;
-	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
-		dwExStyle |= TBSTYLE_EX_MIXEDBUTTONS;
-	SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE, 0, dwExStyle);
+	ApplyToolbarBaseExtendedStyle(m_hWndToolbar, settings.theme);
 
 	// Text rows: "Show text labels" = 1 row, "No text labels" = 0 rows,
 	// "Selective text" = doesn't matter (MIXEDBUTTONS handles it)
@@ -960,6 +1026,12 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 1, 0);
 	else if (dwTextMode == CE_TEXTMODE_NOTEXT)
 		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 0, 0);
+
+	ApplyDropDownGap(m_hWndToolbar, settings.theme);
+	ApplyComctlVersion(m_hWndToolbar, settings.theme);
+	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
+		SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE,
+			TBSTYLE_EX_MIXEDBUTTONS, TBSTYLE_EX_MIXEDBUTTONS);
 
 	// Remember the active theme so we can detect switches later
 	m_lastTheme = settings.theme;
@@ -1033,7 +1105,7 @@ void CStandardToolbar::InitToolbarButtons()
 		if (layout[i] == 0)
 		{
 			// Separator
-			tbb[nButtons].iBitmap = 0;
+			tbb[nButtons].iBitmap = GetSeparatorWidth(settings.theme);
 			tbb[nButtons].idCommand = 0;
 			tbb[nButtons].fsState = 0;
 			tbb[nButtons].fsStyle = BTNS_SEP;
@@ -1071,6 +1143,7 @@ void CStandardToolbar::InitToolbarButtons()
 	}
 
 	SendMessage(m_hWndToolbar, TB_ADDBUTTONS, nButtons, (LPARAM)tbb);
+	RecalcXpButtonWidths(m_hWndToolbar, settings.theme);
 }
 
 void CStandardToolbar::DestroyToolbarWindow()
@@ -1333,6 +1406,7 @@ LRESULT CStandardToolbar::OnReset()
 	{
 		if (pDefLayout[i] == 0)
 		{
+			tbb[nDefButtons].iBitmap = GetSeparatorWidth(m_lastTheme);
 			tbb[nDefButtons].fsStyle = BTNS_SEP;
 			tbb[nDefButtons].iString = -1;
 		}
@@ -1352,6 +1426,7 @@ LRESULT CStandardToolbar::OnReset()
 	}
 
 	SendMessage(m_hWndToolbar, TB_ADDBUTTONS, nDefButtons, (LPARAM)tbb);
+	RecalcXpButtonWidths(m_hWndToolbar, m_lastTheme);
 
 	return 0;  // Let comctl32 refresh the customize dialog lists
 }
@@ -2230,6 +2305,7 @@ void CStandardToolbar::ApplyTextLabelMode(DWORD dwMode)
 	}
 
 	// Force toolbar to recalculate layout
+	RecalcXpButtonWidths(m_hWndToolbar, m_lastTheme);
 	SendMessage(m_hWndToolbar, TB_AUTOSIZE, 0, 0);
 	InvalidateRect(m_hWndToolbar, nullptr, TRUE);
 }
@@ -2313,6 +2389,9 @@ void CStandardToolbar::ReloadSettings()
 
 		// Rebuild image lists for the new theme
 		m_lastTheme = settings.theme;
+		ApplyToolbarBaseExtendedStyle(m_hWndToolbar, settings.theme);
+		ApplyDropDownGap(m_hWndToolbar, settings.theme);
+		ApplyComctlVersion(m_hWndToolbar, settings.theme);
 		RebuildImageLists();
 
 		// Re-populate with new skin's default layout
