@@ -66,9 +66,11 @@ private:
 
 	// Toolbar control:
 	HWND                     m_hWndToolbar = nullptr;
+	HWND                     m_hWndDefView = nullptr;
 	HIMAGELIST               m_hilDefault = nullptr;
 	HIMAGELIST               m_hilHot = nullptr;
 	HIMAGELIST               m_hilDisabled = nullptr;
+	int                      m_iWin2KShiftedGlyphBase = -1;
 
 	// State:
 	bool                     m_bShow = false;
@@ -86,6 +88,10 @@ private:
 	void    PreloadAllStrings();
 	void    UpdateButtonStates();
 	void    DestroyToolbarWindow();
+	void    ApplyWin2KButtonGlyphMode(DWORD dwMode);
+	void    InstallDefViewHook();
+	bool    DoesListViewHaveFocus();
+	DWORD   GetSelectionAttributes(DWORD dwMask);
 	void    ApplyTextLabelMode(DWORD dwMode);
 	void    RebuildImageLists();
 
@@ -137,6 +143,7 @@ public:
 	void    ShowBackForwardMenu(int idCmd, LPNMTOOLBAR pnmtb);
 	void    OnViewsDropdown(LPNMTOOLBAR pnmtb);
 	void    SyncFoldersCheckState();  // called by BagWriteHook / ToolbarSubclassProc
+	void    UpdateDefViewButtonStates();
 	bool    EnsureBrowserBag();       // lazy-init bag + hook; returns true if bag was just acquired
 
 	// TB_CUSTOMIZE notification handlers (called from rebar subclass proc):
@@ -144,6 +151,7 @@ public:
 	void    OnEndCustomize();
 	LRESULT OnGetButtonInfo(LPNMTOOLBAR ptbn);
 	LRESULT OnReset();
+	LRESULT OnToolbarCustomDraw(NMTBCUSTOMDRAW* pnmcd);
 
 	// Settings reload (called when user changes settings via Customize dialog):
 	void    ReloadSettings();

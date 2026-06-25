@@ -39,7 +39,7 @@
 #define OLECMDID_NAVIGATEFORWARD 64
 #endif
 
-// Undocumented toolbar message used by the XP Explorer toolbar to tighten split-button padding.
+// Undocumented toolbar message used by Win2K/XP browseui to tighten split-button spacing.
 #ifndef TB_SETDROPDOWNGAP
 #define TB_SETDROPDOWNGAP (WM_USER + 100)
 #endif
@@ -52,6 +52,10 @@
 #ifndef COMCTL32_VERSION
 #define COMCTL32_VERSION 6
 #endif
+#define XP_COMCTL32_VERSION 6
+#ifndef LVN_ODSTATECHANGED
+#define LVN_ODSTATECHANGED (LVN_FIRST - 15)
+#endif
 
 // XP browseui overrides the toolbar control's default separator width of 8.
 #define XP_CX_SEPARATOR 6
@@ -59,6 +63,28 @@
 #define XP_MAX_TB_WIDTH_HIRES 60
 #define XP_TB_WIDTH_EXTRA 4
 #define XP_WIDTH_FACTOR 4
+
+// Windows 2000 browseui keeps its own toolbar layout constants.
+// Keep these separate from XP even where the numeric values happen to match.
+#define WIN2K_COMCTL32_VERSION 5
+#define WIN2K_CX_SEPARATOR 6
+#define WIN2K_MAX_TB_COMPRESSED_WIDTH 42
+#define WIN2K_MAX_TB_WIDTH_LORES 38
+#define WIN2K_MAX_TB_WIDTH_HIRES 60
+#define WIN2K_TB_WIDTH_EXTRA 4
+#define WIN2K_WIDTH_FACTOR 4
+#define WIN2K_COMCTL5_XPAD 7
+#define WIN2K_COMCTL5_YPAD 6
+
+#ifndef ILD_ROP
+#define ILD_ROP 0x0040
+#endif
+#ifndef ILD_MASK
+#define ILD_MASK 0x0010
+#endif
+#ifndef ILD_IMAGE
+#define ILD_IMAGE 0x0020
+#endif
 
 // ================================================================================================
 // Travel Log interfaces (from IE Platform SDK tlogstg.h)
@@ -124,7 +150,8 @@ static const GUID SID_PerBrowserPropertyBag =
 static const WCHAR g_NavPaneVisible[] = L"PageSpaceControlSizer_Visible";
 
 // Private message posted to the toolbar when the property bag Write hook fires.
-#define WM_BAGWRITE_NOTIFY  (WM_APP + 1)
+#define WM_BAGWRITE_NOTIFY     (WM_APP + 1)
+#define WM_DEFVIEWSTATE_NOTIFY (WM_APP + 2)
 
 // ================================================================================================
 // IPropertyBag::Write vtable hook (same technique as Open-Shell ExplorerBand)
@@ -219,10 +246,98 @@ static UINT GetCustomizeToolbarMsg()
 	return g_uMsgCustomizeToolbar;
 }
 
+static bool IsWindowClass(HWND hwnd, LPCWSTR pszClass)
+{
+	WCHAR szClass[64] = {};
+	return hwnd && GetClassNameW(hwnd, szClass, ARRAYSIZE(szClass)) && lstrcmpiW(szClass, pszClass) == 0;
+}
+
+struct FIND_DESCENDANT_DATA
+{
+	LPCWSTR pszClass;
+	HWND hwndFound;
+};
+
+static BOOL CALLBACK FindDescendantWindowProc(HWND hwnd, LPARAM lParam)
+{
+	FIND_DESCENDANT_DATA* pData = reinterpret_cast<FIND_DESCENDANT_DATA*>(lParam);
+	if (IsWindowClass(hwnd, pData->pszClass))
+	{
+		pData->hwndFound = hwnd;
+		return FALSE;
+	}
+	EnumChildWindows(hwnd, FindDescendantWindowProc, lParam);
+	return pData->hwndFound == nullptr;
+}
+
+static HWND FindDescendantWindow(HWND hwndRoot, LPCWSTR pszClass)
+{
+	FIND_DESCENDANT_DATA data = { pszClass, nullptr };
+	if (IsWindowClass(hwndRoot, pszClass))
+		return hwndRoot;
+	if (hwndRoot)
+		EnumChildWindows(hwndRoot, FindDescendantWindowProc, reinterpret_cast<LPARAM>(&data));
+	return data.hwndFound;
+}
+
+typedef DWORD (WINAPI *PFNSHSETWINDOWBITS)(HWND hwnd, int nIndex, DWORD dwMask, DWORD dwFlags);
+
+static DWORD CallSHSetWindowBits(HWND hwnd, int nIndex, DWORD dwMask, DWORD dwBits)
+{
+	static PFNSHSETWINDOWBITS s_pfnSHSetWindowBits = nullptr;
+	static bool s_fResolved = false;
+
+	if (!s_fResolved)
+	{
+		s_fResolved = true;
+		HMODULE hShlwapi = GetModuleHandleW(L"shlwapi.dll");
+		if (!hShlwapi)
+			hShlwapi = LoadLibraryW(L"shlwapi.dll");
+		if (hShlwapi)
+		{
+			s_pfnSHSetWindowBits = reinterpret_cast<PFNSHSETWINDOWBITS>(
+				GetProcAddress(hShlwapi, "SHSetWindowBits"));
+		}
+	}
+
+	if (s_pfnSHSetWindowBits)
+		return s_pfnSHSetWindowBits(hwnd, nIndex, dwMask, dwBits);
+
+	DWORD dwStyle = static_cast<DWORD>(GetWindowLong(hwnd, nIndex));
+	DWORD dwNewStyle = (dwStyle & ~dwMask) | (dwBits & dwMask);
+	if (dwNewStyle != dwStyle)
+	{
+		SetWindowLong(hwnd, nIndex, static_cast<LONG>(dwNewStyle));
+		SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+	}
+	return dwStyle;
+}
+
+static void ApplyWin2KToolsStyle(HWND hwndToolbar, DWORD dwTextMode)
+{
+	if (!hwndToolbar)
+		return;
+
+	// Win2K browseui does this unconditionally in _UpdateToolsStyle: first
+	// toggle TBSTYLE_LIST with SHSetWindowBits, then toggle MIXEDBUTTONS.
+	BOOL fList = (dwTextMode == CE_TEXTMODE_SELECTIVE);
+	CallSHSetWindowBits(hwndToolbar, GWL_STYLE, TBSTYLE_LIST, fList ? TBSTYLE_LIST : 0);
+	SendMessage(hwndToolbar, TB_SETEXTENDEDSTYLE,
+		TBSTYLE_EX_MIXEDBUTTONS, fList ? TBSTYLE_EX_MIXEDBUTTONS : 0);
+}
+
 static void ApplyToolbarBaseExtendedStyle(HWND hwndToolbar, ClassicExplorerTheme theme)
 {
 	if (!hwndToolbar)
 		return;
+
+	if (theme == CLASSIC_EXPLORER_2K)
+	{
+		SendMessage(hwndToolbar, TB_SETEXTENDEDSTYLE, 0,
+			TBSTYLE_EX_DRAWDDARROWS | TBSTYLE_EX_HIDECLIPPEDBUTTONS);
+		return;
+	}
 
 	DWORD dwMask = TBSTYLE_EX_DRAWDDARROWS | TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER;
 	DWORD dwStyle = TBSTYLE_EX_DRAWDDARROWS;
@@ -236,7 +351,7 @@ static void ApplyDropDownGap(HWND hwndToolbar, ClassicExplorerTheme theme)
 	if (!hwndToolbar)
 		return;
 
-	int cxGap = (theme == CLASSIC_EXPLORER_XP)
+	int cxGap = (theme == CLASSIC_EXPLORER_XP || theme == CLASSIC_EXPLORER_2K)
 		? GetSystemMetrics(SM_CXEDGE) / 2
 		: GetSystemMetrics(SM_CXEDGE) * 2;
 	SendMessage(hwndToolbar, TB_SETDROPDOWNGAP, cxGap, 0);
@@ -244,12 +359,19 @@ static void ApplyDropDownGap(HWND hwndToolbar, ClassicExplorerTheme theme)
 
 static void ApplyComctlVersion(HWND hwndToolbar, ClassicExplorerTheme theme)
 {
-	if (hwndToolbar && theme == CLASSIC_EXPLORER_XP)
-		SendMessage(hwndToolbar, CCM_SETVERSION, COMCTL32_VERSION, 0);
+	if (!hwndToolbar)
+		return;
+
+	if (theme == CLASSIC_EXPLORER_2K)
+		SendMessage(hwndToolbar, CCM_SETVERSION, WIN2K_COMCTL32_VERSION, 0);
+	else if (theme == CLASSIC_EXPLORER_XP)
+		SendMessage(hwndToolbar, CCM_SETVERSION, XP_COMCTL32_VERSION, 0);
 }
 
 static int GetSeparatorWidth(ClassicExplorerTheme theme)
 {
+	if (theme == CLASSIC_EXPLORER_2K)
+		return WIN2K_CX_SEPARATOR;
 	return (theme == CLASSIC_EXPLORER_XP) ? XP_CX_SEPARATOR : 0;
 }
 
@@ -265,6 +387,25 @@ static void RecalcXpButtonWidths(HWND hwndToolbar, ClassicExplorerTheme theme)
 	{
 		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, 10));
 		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, GetXpMaxButtonWidth()));
+	}
+}
+
+static int GetWin2KMaxButtonWidth(BOOL fCompressed)
+{
+	if (fCompressed)
+		return WIN2K_MAX_TB_COMPRESSED_WIDTH;
+
+	int cx = (GetSystemMetrics(SM_CXSCREEN) < 650) ? WIN2K_MAX_TB_WIDTH_LORES : WIN2K_MAX_TB_WIDTH_HIRES;
+	return cx + WIN2K_TB_WIDTH_EXTRA * WIN2K_WIDTH_FACTOR;
+}
+
+static void RecalcWin2KButtonWidths(HWND hwndToolbar, ClassicExplorerTheme theme, DWORD dwTextMode)
+{
+	if (hwndToolbar && theme == CLASSIC_EXPLORER_2K)
+	{
+		BOOL fCompressed = (dwTextMode == CE_TEXTMODE_NOTEXT);
+		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, 10));
+		SendMessage(hwndToolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(0, GetWin2KMaxButtonWidth(fCompressed)));
 	}
 }
 
@@ -466,9 +607,58 @@ static LRESULT CALLBACK ToolbarSubclassProc(
 		pThis->SyncFoldersCheckState();
 		return 0;
 
+	case WM_DEFVIEWSTATE_NOTIFY:
+		pThis->UpdateDefViewButtonStates();
+		return 0;
+
 	case WM_NCDESTROY:
 		g_hWndToolbarForHook = nullptr;
 		RemoveWindowSubclass(hWnd, ToolbarSubclassProc, uIdSubclass);
+		break;
+	}
+
+	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
+static void PostDefViewStateRefresh(CStandardToolbar* pThis)
+{
+	if (pThis && pThis->GetToolbarHwnd() && IsWindow(pThis->GetToolbarHwnd()))
+		PostMessage(pThis->GetToolbarHwnd(), WM_DEFVIEWSTATE_NOTIFY, 0, 0);
+}
+
+static LRESULT CALLBACK DefViewSubclassProc(
+	HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+	UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
+{
+	CStandardToolbar* pThis = reinterpret_cast<CStandardToolbar*>(dwRefData);
+
+	switch (uMsg)
+	{
+	case WM_SETFOCUS:
+	case WM_KILLFOCUS:
+		PostDefViewStateRefresh(pThis);
+		break;
+
+	case WM_NOTIFY:
+	{
+		NMHDR* pnm = reinterpret_cast<NMHDR*>(lParam);
+		if (pnm && IsWindowClass(pnm->hwndFrom, L"SysListView32"))
+		{
+			switch (pnm->code)
+			{
+			case LVN_ITEMCHANGED:
+			case LVN_ODSTATECHANGED:
+			case NM_SETFOCUS:
+			case NM_KILLFOCUS:
+				PostDefViewStateRefresh(pThis);
+				break;
+			}
+		}
+		break;
+	}
+
+	case WM_NCDESTROY:
+		RemoveWindowSubclass(hWnd, DefViewSubclassProc, uIdSubclass);
 		break;
 	}
 
@@ -796,6 +986,232 @@ static HIMAGELIST _CreateImageListFromResource(HINSTANCE hInst, UINT idBitmap, i
 	return himl;
 }
 
+static HIMAGELIST _LoadWin2KImageListFromResource(HINSTANCE hInst, UINT idBitmap, int cx, COLORREF crMask)
+{
+	return ImageList_LoadImageW(hInst, MAKEINTRESOURCEW(idBitmap), cx, 0, crMask,
+		IMAGE_BITMAP, LR_CREATEDIBSECTION);
+}
+
+static HIMAGELIST _CreateToolbarImageListFromResource(HINSTANCE hInst, UINT idBitmap, int cx, COLORREF crMask, ClassicExplorerTheme theme)
+{
+	if (theme == CLASSIC_EXPLORER_2K)
+		return _LoadWin2KImageListFromResource(hInst, idBitmap, cx, crMask);
+	return _CreateImageListFromResource(hInst, idBitmap, cx, crMask);
+}
+
+static bool _AppendShiftedImageListCopies(HIMAGELIST himl, int dxShift, COLORREF crMask)
+{
+	if (!himl || dxShift <= 0)
+		return false;
+
+	int cImages = ImageList_GetImageCount(himl);
+	int cx = 0, cy = 0;
+	if (cImages <= 0 || !ImageList_GetIconSize(himl, &cx, &cy) || cx <= 0 || cy <= 0)
+		return false;
+
+	HDC hdcScreen = GetDC(nullptr);
+	if (!hdcScreen)
+		return false;
+
+	HDC hdcSrc = CreateCompatibleDC(hdcScreen);
+	HDC hdcDst = CreateCompatibleDC(hdcScreen);
+	HDC hdcMaskSrc = CreateCompatibleDC(hdcScreen);
+	HDC hdcMaskDst = CreateCompatibleDC(hdcScreen);
+
+	if (!hdcSrc || !hdcDst || !hdcMaskSrc || !hdcMaskDst)
+	{
+		if (hdcSrc) DeleteDC(hdcSrc);
+		if (hdcDst) DeleteDC(hdcDst);
+		if (hdcMaskSrc) DeleteDC(hdcMaskSrc);
+		if (hdcMaskDst) DeleteDC(hdcMaskDst);
+		ReleaseDC(nullptr, hdcScreen);
+		return false;
+	}
+
+	bool fOk = true;
+
+	for (int i = 0; i < cImages; i++)
+	{
+		IMAGEINFO ii = {};
+		if (!ImageList_GetImageInfo(himl, i, &ii) || !ii.hbmImage || !ii.hbmMask)
+		{
+			fOk = false;
+			break;
+		}
+
+		HBITMAP hbmColor = CreateCompatibleBitmap(hdcScreen, cx, cy);
+		HBITMAP hbmMask = CreateBitmap(cx, cy, 1, 1, nullptr);
+		if (!hbmColor || !hbmMask)
+		{
+			if (hbmColor) DeleteObject(hbmColor);
+			if (hbmMask) DeleteObject(hbmMask);
+			fOk = false;
+			break;
+		}
+
+		HGDIOBJ hOldSrc = SelectObject(hdcSrc, ii.hbmImage);
+		HGDIOBJ hOldDst = SelectObject(hdcDst, hbmColor);
+		HGDIOBJ hOldMaskSrc = SelectObject(hdcMaskSrc, ii.hbmMask);
+		HGDIOBJ hOldMaskDst = SelectObject(hdcMaskDst, hbmMask);
+
+		RECT rcCell = { 0, 0, cx, cy };
+		HBRUSH hbrColorKey = CreateSolidBrush(crMask);
+		FillRect(hdcDst, &rcCell, hbrColorKey ? hbrColorKey : (HBRUSH)GetStockObject(BLACK_BRUSH));
+		if (hbrColorKey)
+			DeleteObject(hbrColorKey);
+
+		// HACK: This is hacky on purpose.  The real Win2K comctl32 v5 moves the
+		// draw origin for TBSTYLE_LIST buttons that actually show text.  We cannot
+		// swap Explorer's comctl32 at runtime, so the shifted duplicate preserves
+		// the image-list mask exactly instead of redrawing through the magenta key.
+		// That keeps transparency identical to the original toolbar glyphs.
+		PatBlt(hdcMaskDst, 0, 0, cx, cy, WHITENESS); // transparent everywhere by default
+		int cxCopy = cx - dxShift;
+		if (cxCopy <= 0 ||
+			!BitBlt(hdcDst, dxShift, 0, cxCopy, cy,
+				hdcSrc, ii.rcImage.left, ii.rcImage.top, SRCCOPY) ||
+			!BitBlt(hdcMaskDst, dxShift, 0, cxCopy, cy,
+				hdcMaskSrc, ii.rcImage.left, ii.rcImage.top, SRCCOPY))
+		{
+			fOk = false;
+		}
+
+		SelectObject(hdcSrc, hOldSrc);
+		SelectObject(hdcDst, hOldDst);
+		SelectObject(hdcMaskSrc, hOldMaskSrc);
+		SelectObject(hdcMaskDst, hOldMaskDst);
+
+		if (fOk && ImageList_Add(himl, hbmColor, hbmMask) < 0)
+			fOk = false;
+
+		DeleteObject(hbmColor);
+		DeleteObject(hbmMask);
+
+		if (!fOk)
+			break;
+	}
+
+	DeleteDC(hdcMaskDst);
+	DeleteDC(hdcMaskSrc);
+	DeleteDC(hdcDst);
+	DeleteDC(hdcSrc);
+	ReleaseDC(nullptr, hdcScreen);
+	return fOk;
+}
+
+
+static bool _DrawWin2KDisabledSelectiveTextGlyph(HDC hdc, HIMAGELIST himl, int iImage,
+	const RECT& rcButton, int xCenterOffset, int yOffset, int dxFace, int dyFace)
+{
+	if (!hdc || !himl || iImage < 0 || dxFace <= 0 || dyFace <= 0)
+		return false;
+
+	HDC hdcMono = CreateCompatibleDC(hdc);
+	if (!hdcMono)
+		return false;
+
+	HBITMAP hbmMono = CreateBitmap(dxFace, dyFace, 1, 1, nullptr);
+	if (!hbmMono)
+	{
+		DeleteDC(hdcMono);
+		return false;
+	}
+
+	HGDIOBJ hbmOld = SelectObject(hdcMono, hbmMono);
+	SetTextColor(hdcMono, RGB(0, 0, 0));
+	SetBkColor(hdcMono, RGB(255, 255, 255));
+	PatBlt(hdcMono, 0, 0, dxFace, dyFace, WHITENESS);
+
+	// HACK: This is hacky.  The shifted duplicate glyphs are only a modern-host
+	// workaround for Win2K selective text positioning.  Disabled Win2K toolbar
+	// glyphs are not drawn from a disabled image list; comctl32 v5 builds a
+	// monochrome mask from the normal glyph and blits highlight/shadow colors
+	// through PSDPxax.  Recreate that only for the shifted icon+text buttons so
+	// Back grays out instead of disappearing, while icon-only buttons keep the
+	// toolbar's native disabled rendering path.
+	IMAGELISTDRAWPARAMS imldp = { sizeof(imldp) };
+	imldp.himl = himl;
+	imldp.i = iImage;
+	imldp.hdcDst = hdcMono;
+	imldp.x = xCenterOffset;
+	imldp.y = yOffset;
+	imldp.cx = 0;
+	imldp.cy = 0;
+	imldp.xBitmap = 0;
+	imldp.yBitmap = 0;
+	imldp.rgbBk = GetSysColor(COLOR_BTNFACE);
+	imldp.rgbFg = CLR_DEFAULT;
+	imldp.fStyle = ILD_ROP | ILD_MASK;
+	imldp.dwRop = SRCCOPY;
+	BOOL fMaskOk = ImageList_DrawIndirect(&imldp);
+
+	imldp.rgbBk = GetSysColor(COLOR_3DHILIGHT);
+	imldp.fStyle = ILD_ROP | ILD_IMAGE;
+	imldp.dwRop = SRCPAINT;
+	BOOL fImageOk = fMaskOk && ImageList_DrawIndirect(&imldp);
+
+	bool fOk = false;
+	if (fImageOk)
+	{
+		const DWORD WIN2K_PSDPXAX = 0x00B8074A;
+		int xFace = rcButton.left + GetSystemMetrics(SM_CXEDGE);
+		int yFace = rcButton.top + GetSystemMetrics(SM_CYEDGE);
+
+		COLORREF oldText = SetTextColor(hdc, RGB(0, 0, 0));
+		COLORREF oldBk = SetBkColor(hdc, RGB(255, 255, 255));
+
+		HGDIOBJ hbrOld = SelectObject(hdc, GetSysColorBrush(COLOR_3DHILIGHT));
+		if (hbrOld)
+		{
+			BitBlt(hdc, xFace + 1, yFace + 1, dxFace, dyFace, hdcMono, 0, 0, WIN2K_PSDPXAX);
+			SelectObject(hdc, hbrOld);
+		}
+
+		hbrOld = SelectObject(hdc, GetSysColorBrush(COLOR_3DSHADOW));
+		if (hbrOld)
+		{
+			fOk = BitBlt(hdc, xFace, yFace, dxFace, dyFace, hdcMono, 0, 0, WIN2K_PSDPXAX) != FALSE;
+			SelectObject(hdc, hbrOld);
+		}
+
+		SetTextColor(hdc, oldText);
+		SetBkColor(hdc, oldBk);
+	}
+
+	SelectObject(hdcMono, hbmOld);
+	DeleteObject(hbmMono);
+	DeleteDC(hdcMono);
+	return fOk;
+}
+
+static int _PrepareWin2KSelectiveTextImageLists(HIMAGELIST himlDef, HIMAGELIST himlHot, HIMAGELIST himlDis, COLORREF crMask)
+{
+	if (!himlDef || !himlHot)
+		return -1;
+
+	int cDef = ImageList_GetImageCount(himlDef);
+	int cHot = ImageList_GetImageCount(himlHot);
+	if (cDef <= 0 || cDef != cHot)
+		return -1;
+
+	// Win2K comctl32 v5 moves the paint origin inside the button edge before
+	// applying xPad/2 for TBSTYLE_LIST buttons that actually show text.  Modern
+	// hosts already size/place the text correctly, so compensate only the glyph
+	// used by those selective-text buttons.  Show-text-below-icons mode is not
+	// TBSTYLE_LIST and must keep the original glyphs.
+	int dxShift = GetSystemMetrics(SM_CXEDGE);
+	if (!_AppendShiftedImageListCopies(himlDef, dxShift, crMask) ||
+		!_AppendShiftedImageListCopies(himlHot, dxShift, crMask))
+	{
+		return -1;
+	}
+
+	if (himlDis && ImageList_GetImageCount(himlDis) == cDef)
+		_AppendShiftedImageListCopies(himlDis, dxShift, crMask);
+
+	return cDef;
+}
+
 // ================================================================================================
 // XP-style grayscale image list for disabled button state.
 // Ported from Windows Server 2003 browseui itbar.cpp _CreateGrayScaleImagelist().
@@ -995,14 +1411,19 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 	// - "No text labels" (mode 2): TBSTYLE_LIST doesn't matter, but keep it off
 	DWORD dwTbStyle = WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS |
 		TBSTYLE_FLAT | TBSTYLE_TOOLTIPS |
-		CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE | CCS_ADJUSTABLE;
+		CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE;
 
-	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
+	if (settings.theme != CLASSIC_EXPLORER_2K)
+		dwTbStyle |= CCS_ADJUSTABLE;
+
+	if (dwTextMode == CE_TEXTMODE_SELECTIVE && settings.theme != CLASSIC_EXPLORER_2K)
 		dwTbStyle |= TBSTYLE_LIST;
+
+	DWORD dwTbExStyle = (settings.theme == CLASSIC_EXPLORER_2K) ? WS_EX_TOOLWINDOW : 0;
 
 	// Create the toolbar control
 	m_hWndToolbar = CreateWindowEx(
-		0,
+		dwTbExStyle,
 		TOOLBARCLASSNAME,
 		nullptr,
 		dwTbStyle,
@@ -1020,18 +1441,27 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 
 	ApplyToolbarBaseExtendedStyle(m_hWndToolbar, settings.theme);
 
-	// Text rows: "Show text labels" = 1 row, "No text labels" = 0 rows,
-	// "Selective text" = doesn't matter (MIXEDBUTTONS handles it)
-	if (dwTextMode == CE_TEXTMODE_SHOWTEXT)
+	// Text rows: Win2K always sets the max rows during toolbar init; XP keeps
+	// the existing selective-text behavior where MIXEDBUTTONS handles it.
+	if (settings.theme == CLASSIC_EXPLORER_2K)
+		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS,
+			dwTextMode == CE_TEXTMODE_NOTEXT ? 0 : 1, 0);
+	else if (dwTextMode == CE_TEXTMODE_SHOWTEXT)
 		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 1, 0);
 	else if (dwTextMode == CE_TEXTMODE_NOTEXT)
 		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS, 0, 0);
 
 	ApplyDropDownGap(m_hWndToolbar, settings.theme);
 	ApplyComctlVersion(m_hWndToolbar, settings.theme);
-	if (dwTextMode == CE_TEXTMODE_SELECTIVE)
+	if (settings.theme == CLASSIC_EXPLORER_2K)
+	{
+		ApplyWin2KToolsStyle(m_hWndToolbar, dwTextMode);
+	}
+	else if (dwTextMode == CE_TEXTMODE_SELECTIVE)
+	{
 		SendMessage(m_hWndToolbar, TB_SETEXTENDEDSTYLE,
 			TBSTYLE_EX_MIXEDBUTTONS, TBSTYLE_EX_MIXEDBUTTONS);
+	}
 
 	// Remember the active theme so we can detect switches later
 	m_lastTheme = settings.theme;
@@ -1043,14 +1473,18 @@ HRESULT CStandardToolbar::CreateToolbarWindow(HWND hWndParent)
 	bool fIE55 = (settings.theme == CLASSIC_EXPLORER_2K && settings.ie55Style == 1);
 	TB_SKIN_BITMAPS bmp = GetActiveBitmapIDs(settings.theme, fSmallIcons, fIE55);
 
-	m_hilDefault = _CreateImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask);
-	m_hilHot     = _CreateImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask);
+	m_hilDefault = _CreateToolbarImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
+	m_hilHot     = _CreateToolbarImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask, settings.theme);
 
 	// Create disabled image list (algorithm differs per theme)
 	m_hilDisabled = _CreateDisabledImageList(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
 
 	// Append system bitmap icons for Properties, Cut, Copy, Paste, Folder Options
 	_AppendSystemBitmapIcons(m_hilDefault, m_hilHot, m_hilDisabled, bmp.cx, settings.theme, fIE55);
+
+	m_iWin2KShiftedGlyphBase = (settings.theme == CLASSIC_EXPLORER_2K)
+		? _PrepareWin2KSelectiveTextImageLists(m_hilDefault, m_hilHot, m_hilDisabled, crMask)
+		: -1;
 
 	SendMessage(m_hWndToolbar, TB_SETIMAGELIST, 0, (LPARAM)m_hilDefault);
 	SendMessage(m_hWndToolbar, TB_SETHOTIMAGELIST, 0, (LPARAM)m_hilHot);
@@ -1082,6 +1516,7 @@ void CStandardToolbar::InitToolbarButtons()
 
 	// Get the active skin's catalog and default layout
 	CEUtil::CESettings settings = CEUtil::GetCESettings();
+	DWORD dwTextMode = (settings.textLabelMode <= 2) ? settings.textLabelMode : CE_TEXTMODE_SELECTIVE;
 	int nCatalog = 0;
 	const TB_BUTTON_DEF* pCatalog = GetActiveButtonCatalog(settings.theme, &nCatalog);
 	int nDefLayout = 0;
@@ -1121,7 +1556,12 @@ void CStandardToolbar::InitToolbarButtons()
 			const TB_BUTTON_DEF& def = pCatalog[idx];
 			tbb[nButtons].iBitmap = def.iBitmap;
 			tbb[nButtons].idCommand = def.idCommand;
-			tbb[nButtons].fsState = TBSTATE_ENABLED;
+			tbb[nButtons].fsState = def.bEnabled ? TBSTATE_ENABLED : 0;
+			if (settings.theme == CLASSIC_EXPLORER_2K &&
+				(def.idCommand == TBIDM_MOVETO || def.idCommand == TBIDM_COPYTO))
+			{
+				tbb[nButtons].fsState = 0;
+			}
 			tbb[nButtons].fsStyle = def.fsStyle;
 			tbb[nButtons].dwData = 0;
 			tbb[nButtons].iString = m_iStringPool[idx];
@@ -1143,11 +1583,20 @@ void CStandardToolbar::InitToolbarButtons()
 	}
 
 	SendMessage(m_hWndToolbar, TB_ADDBUTTONS, nButtons, (LPARAM)tbb);
+	ApplyWin2KButtonGlyphMode(dwTextMode);
 	RecalcXpButtonWidths(m_hWndToolbar, settings.theme);
+	RecalcWin2KButtonWidths(m_hWndToolbar, settings.theme, dwTextMode);
+	UpdateDefViewButtonStates();
 }
 
 void CStandardToolbar::DestroyToolbarWindow()
 {
+	if (m_hWndDefView && IsWindow(m_hWndDefView))
+	{
+		RemoveWindowSubclass(m_hWndDefView, DefViewSubclassProc, 0);
+		m_hWndDefView = nullptr;
+	}
+
 	if (m_hilDefault)
 	{
 		ImageList_Destroy(m_hilDefault);
@@ -1163,6 +1612,7 @@ void CStandardToolbar::DestroyToolbarWindow()
 		ImageList_Destroy(m_hilDisabled);
 		m_hilDisabled = nullptr;
 	}
+	m_iWin2KShiftedGlyphBase = -1;
 	if (m_hWndToolbar && IsWindow(m_hWndToolbar))
 	{
 		DestroyWindow(m_hWndToolbar);
@@ -1308,6 +1758,9 @@ void CStandardToolbar::OnEndCustomize()
 {
 	SaveToolbarLayout();
 	m_hwndCustomizeChild = nullptr;
+	CEUtil::CESettings settings = CEUtil::GetCESettings();
+	DWORD dwTextMode = (settings.textLabelMode <= 2) ? settings.textLabelMode : CE_TEXTMODE_SELECTIVE;
+	ApplyWin2KButtonGlyphMode(dwTextMode);
 	UpdateButtonStates();
 
 	// Notify the rebar parent to recalculate band sizes
@@ -1418,7 +1871,12 @@ LRESULT CStandardToolbar::OnReset()
 			const TB_BUTTON_DEF& def = pCatalog[idx];
 			tbb[nDefButtons].iBitmap = def.iBitmap;
 			tbb[nDefButtons].idCommand = def.idCommand;
-			tbb[nDefButtons].fsState = TBSTATE_ENABLED;
+			tbb[nDefButtons].fsState = def.bEnabled ? TBSTATE_ENABLED : 0;
+			if (m_lastTheme == CLASSIC_EXPLORER_2K &&
+				(def.idCommand == TBIDM_MOVETO || def.idCommand == TBIDM_COPYTO))
+			{
+				tbb[nDefButtons].fsState = 0;
+			}
 			tbb[nDefButtons].fsStyle = def.fsStyle;
 			tbb[nDefButtons].iString = m_iStringPool[idx];
 		}
@@ -1426,7 +1884,10 @@ LRESULT CStandardToolbar::OnReset()
 	}
 
 	SendMessage(m_hWndToolbar, TB_ADDBUTTONS, nDefButtons, (LPARAM)tbb);
+	ApplyWin2KButtonGlyphMode(skinDef.textLabelMode);
 	RecalcXpButtonWidths(m_hWndToolbar, m_lastTheme);
+	RecalcWin2KButtonWidths(m_hWndToolbar, m_lastTheme, skinDef.textLabelMode);
+	UpdateDefViewButtonStates();
 
 	return 0;  // Let comctl32 refresh the customize dialog lists
 }
@@ -1479,6 +1940,7 @@ void CStandardToolbar::UpdateButtonStates()
 		GetBrowserBag();
 
 	SyncFoldersCheckState();
+	UpdateDefViewButtonStates();
 }
 
 void CStandardToolbar::SyncFoldersCheckState()
@@ -1492,6 +1954,265 @@ void CStandardToolbar::SyncFoldersCheckState()
 		&& val.vt == VT_BOOL && val.boolVal;
 	VariantClear(&val);
 	SendMessage(m_hWndToolbar, TB_CHECKBUTTON, TBIDM_ALLFOLDERS, MAKELONG(bNavPane, 0));
+}
+
+void CStandardToolbar::ApplyWin2KButtonGlyphMode(DWORD dwMode)
+{
+	if (!m_hWndToolbar || m_lastTheme != CLASSIC_EXPLORER_2K || m_iWin2KShiftedGlyphBase <= 0)
+		return;
+
+	int nButtons = (int)SendMessage(m_hWndToolbar, TB_BUTTONCOUNT, 0, 0);
+	for (int i = 0; i < nButtons; i++)
+	{
+		TBBUTTON tbb = {};
+		if (!SendMessage(m_hWndToolbar, TB_GETBUTTON, i, (LPARAM)&tbb))
+			continue;
+
+		if ((tbb.fsStyle & BTNS_SEP) || tbb.idCommand == 0)
+			continue;
+
+		int iOriginal = tbb.iBitmap;
+		if (iOriginal >= m_iWin2KShiftedGlyphBase && iOriginal < (m_iWin2KShiftedGlyphBase * 2))
+			iOriginal -= m_iWin2KShiftedGlyphBase;
+
+		if (iOriginal < 0 || iOriginal >= m_iWin2KShiftedGlyphBase)
+			continue;
+
+		int iDesired = iOriginal;
+		if (dwMode == CE_TEXTMODE_SELECTIVE && (tbb.fsStyle & BTNS_SHOWTEXT))
+			iDesired = iOriginal + m_iWin2KShiftedGlyphBase;
+
+		if (iDesired != tbb.iBitmap)
+		{
+			TBBUTTONINFO tbi = { sizeof(tbi) };
+			tbi.dwMask = TBIF_IMAGE;
+			tbi.iImage = iDesired;
+			SendMessage(m_hWndToolbar, TB_SETBUTTONINFO, tbb.idCommand, (LPARAM)&tbi);
+		}
+	}
+}
+
+LRESULT CStandardToolbar::OnToolbarCustomDraw(NMTBCUSTOMDRAW* pnmcd)
+{
+	if (!pnmcd || !m_hWndToolbar || m_lastTheme != CLASSIC_EXPLORER_2K || m_iWin2KShiftedGlyphBase <= 0)
+		return CDRF_DODEFAULT;
+
+	switch (pnmcd->nmcd.dwDrawStage)
+	{
+	case CDDS_PREPAINT:
+		return CDRF_NOTIFYITEMDRAW;
+
+	case CDDS_ITEMPREPAINT:
+	{
+		TBBUTTONINFO tbi = { sizeof(tbi) };
+		tbi.dwMask = TBIF_IMAGE | TBIF_STYLE | TBIF_STATE;
+		if (SendMessage(m_hWndToolbar, TB_GETBUTTONINFO, pnmcd->nmcd.dwItemSpec, (LPARAM)&tbi) < 0)
+			return CDRF_DODEFAULT;
+
+		if ((tbi.fsStyle & BTNS_SHOWTEXT) &&
+			tbi.iImage >= m_iWin2KShiftedGlyphBase &&
+			tbi.iImage < (m_iWin2KShiftedGlyphBase * 2))
+		{
+			return CDRF_NOTIFYPOSTPAINT;
+		}
+		return CDRF_DODEFAULT;
+	}
+
+	case CDDS_ITEMPOSTPAINT:
+	{
+		TBBUTTONINFO tbi = { sizeof(tbi) };
+		tbi.dwMask = TBIF_IMAGE | TBIF_STYLE | TBIF_STATE;
+		if (SendMessage(m_hWndToolbar, TB_GETBUTTONINFO, pnmcd->nmcd.dwItemSpec, (LPARAM)&tbi) < 0)
+			return CDRF_DODEFAULT;
+
+		if (!(tbi.fsStyle & BTNS_SHOWTEXT) ||
+			tbi.iImage < m_iWin2KShiftedGlyphBase ||
+			tbi.iImage >= (m_iWin2KShiftedGlyphBase * 2))
+		{
+			return CDRF_DODEFAULT;
+		}
+
+		int iOriginal = tbi.iImage - m_iWin2KShiftedGlyphBase;
+		HIMAGELIST himl = ((pnmcd->nmcd.uItemState & CDIS_HOT) || (tbi.fsState & TBSTATE_CHECKED)) &&
+			(tbi.fsState & TBSTATE_ENABLED) && m_hilHot
+			? m_hilHot
+			: m_hilDefault;
+		if (!himl)
+			return CDRF_DODEFAULT;
+
+		int cx = 0, cy = 0;
+		if (!ImageList_GetIconSize(himl, &cx, &cy) || cx <= 0 || cy <= 0)
+			return CDRF_DODEFAULT;
+
+		int xEdge = GetSystemMetrics(SM_CXEDGE);
+		int yEdge = GetSystemMetrics(SM_CYEDGE);
+		int yOffset = (WIN2K_COMCTL5_YPAD - (2 * yEdge)) / 2;
+		if (yOffset < 0)
+			yOffset = 0;
+
+		int dxFace = pnmcd->nmcd.rc.right - pnmcd->nmcd.rc.left - (2 * xEdge);
+		int dyFace = pnmcd->nmcd.rc.bottom - pnmcd->nmcd.rc.top - (2 * yEdge);
+		int xCenterOffset = WIN2K_COMCTL5_XPAD / 2;
+		if (tbi.fsState & (TBSTATE_PRESSED | TBSTATE_CHECKED))
+		{
+			xCenterOffset++;
+			yOffset++;
+		}
+
+		if (!(tbi.fsState & TBSTATE_ENABLED))
+		{
+			_DrawWin2KDisabledSelectiveTextGlyph(pnmcd->nmcd.hdc, m_hilDefault, iOriginal,
+				pnmcd->nmcd.rc, xCenterOffset, yOffset, dxFace, dyFace);
+			return CDRF_DODEFAULT;
+		}
+
+		// HACK: This is hacky.  The shifted duplicate image-list cell above fixes
+		// the modern host's selective-text icon origin, but an image-list cell clips
+		// the right edge of full-width Win2K glyphs such as Search.  Win2K comctl32
+		// draws the original glyph at the shifted origin instead, so repair only the
+		// already-shifted icon+text buttons after the toolbar's normal paint.  Icon-only
+		// buttons and Show Text Labels mode never use shifted indices and are untouched.
+		int x = pnmcd->nmcd.rc.left + xEdge + xCenterOffset;
+		int y = pnmcd->nmcd.rc.top + yEdge + yOffset;
+
+		ImageList_Draw(himl, iOriginal, pnmcd->nmcd.hdc, x, y, ILD_TRANSPARENT);
+		return CDRF_DODEFAULT;
+	}
+	}
+
+	return CDRF_DODEFAULT;
+}
+
+void CStandardToolbar::InstallDefViewHook()
+{
+	CEUtil::CESettings settings = CEUtil::GetCESettings();
+	if (settings.theme != CLASSIC_EXPLORER_2K)
+	{
+		if (m_hWndDefView && IsWindow(m_hWndDefView))
+			RemoveWindowSubclass(m_hWndDefView, DefViewSubclassProc, 0);
+		m_hWndDefView = nullptr;
+		return;
+	}
+
+	HWND hWndView = nullptr;
+	if (m_pShellBrowser)
+	{
+		CComPtr<IShellView> pView;
+		if (SUCCEEDED(m_pShellBrowser->QueryActiveShellView(&pView)) && pView)
+			pView->GetWindow(&hWndView);
+	}
+
+	if (hWndView == m_hWndDefView)
+		return;
+
+	if (m_hWndDefView && IsWindow(m_hWndDefView))
+		RemoveWindowSubclass(m_hWndDefView, DefViewSubclassProc, 0);
+	m_hWndDefView = nullptr;
+
+	if (hWndView && IsWindow(hWndView))
+	{
+		m_hWndDefView = hWndView;
+		SetWindowSubclass(m_hWndDefView, DefViewSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this));
+	}
+}
+
+bool CStandardToolbar::DoesListViewHaveFocus()
+{
+	if (!m_pShellBrowser)
+		return false;
+
+	CComPtr<IShellView> pView;
+	HWND hWndView = nullptr;
+	if (FAILED(m_pShellBrowser->QueryActiveShellView(&pView)) || !pView || FAILED(pView->GetWindow(&hWndView)) || !hWndView)
+		return false;
+
+	HWND hwndList = FindDescendantWindow(hWndView, L"SysListView32");
+	HWND hwndFocus = GetFocus();
+	while (hwndFocus)
+	{
+		if (hwndFocus == hwndList)
+			return true;
+		if (hwndFocus == hWndView)
+			break;
+		hwndFocus = GetParent(hwndFocus);
+	}
+
+	return false;
+}
+
+DWORD CStandardToolbar::GetSelectionAttributes(DWORD dwMask)
+{
+	if (!m_pShellBrowser)
+		return 0;
+
+	CComPtr<IShellView> pView;
+	if (FAILED(m_pShellBrowser->QueryActiveShellView(&pView)) || !pView)
+		return 0;
+
+	CComQIPtr<IFolderView> pFolderView = pView;
+	if (!pFolderView)
+		return 0;
+
+	CComPtr<IShellFolder> pShellFolder;
+	if (FAILED(pFolderView->GetFolder(IID_IShellFolder, (void**)&pShellFolder)) || !pShellFolder)
+		return 0;
+
+	CComPtr<IEnumIDList> pEnum;
+	if (FAILED(pFolderView->Items(SVGIO_SELECTION, IID_IEnumIDList, (void**)&pEnum)) || !pEnum)
+		return 0;
+
+	DWORD dwAttr = dwMask;
+	bool fAnySelection = false;
+	PITEMID_CHILD pidlChild = nullptr;
+	ULONG cFetched = 0;
+	while (pEnum->Next(1, &pidlChild, &cFetched) == S_OK && cFetched == 1)
+	{
+		SFGAOF dwThis = dwMask;
+		PCUITEMID_CHILD apidl[1] = { pidlChild };
+		if (SUCCEEDED(pShellFolder->GetAttributesOf(1, apidl, &dwThis)))
+			dwAttr &= (dwThis & dwMask);
+		else
+			dwAttr = 0;
+
+		fAnySelection = true;
+		CoTaskMemFree(pidlChild);
+		pidlChild = nullptr;
+		cFetched = 0;
+	}
+
+	if (pidlChild)
+		CoTaskMemFree(pidlChild);
+
+	return fAnySelection ? dwAttr : 0;
+}
+
+void CStandardToolbar::UpdateDefViewButtonStates()
+{
+	if (!m_hWndToolbar)
+		return;
+
+	CEUtil::CESettings settings = CEUtil::GetCESettings();
+	if (settings.theme != CLASSIC_EXPLORER_2K)
+	{
+		if (m_hWndDefView && IsWindow(m_hWndDefView))
+			RemoveWindowSubclass(m_hWndDefView, DefViewSubclassProc, 0);
+		m_hWndDefView = nullptr;
+		return;
+	}
+
+	InstallDefViewHook();
+
+	BOOL bCanMove = FALSE;
+	BOOL bCanCopy = FALSE;
+	if (DoesListViewHaveFocus())
+	{
+		DWORD dwAttr = GetSelectionAttributes(SFGAO_CANMOVE | SFGAO_CANCOPY);
+		bCanMove = (dwAttr & SFGAO_CANMOVE) ? TRUE : FALSE;
+		bCanCopy = (dwAttr & SFGAO_CANCOPY) ? TRUE : FALSE;
+	}
+
+	SendMessage(m_hWndToolbar, TB_ENABLEBUTTON, TBIDM_MOVETO, MAKELONG(bCanMove, 0));
+	SendMessage(m_hWndToolbar, TB_ENABLEBUTTON, TBIDM_COPYTO, MAKELONG(bCanCopy, 0));
 }
 
 // ================================================================================================
@@ -1527,6 +2248,9 @@ static LRESULT CALLBACK RebarSubclassProc(
 		{
 			switch (pnmh->code)
 			{
+			case NM_CUSTOMDRAW:
+				return pThis->OnToolbarCustomDraw(reinterpret_cast<NMTBCUSTOMDRAW*>(lParam));
+
 			case TBN_DROPDOWN:
 			{
 				NMTOOLBAR* pnmtb = reinterpret_cast<NMTOOLBAR*>(lParam);
@@ -2268,6 +2992,18 @@ void CStandardToolbar::ApplyTextLabelMode(DWORD dwMode)
 	if (!m_hWndToolbar)
 		return;
 
+	if (m_lastTheme == CLASSIC_EXPLORER_2K)
+	{
+		ApplyWin2KToolsStyle(m_hWndToolbar, dwMode);
+		SendMessage(m_hWndToolbar, TB_SETMAXTEXTROWS,
+			dwMode == CE_TEXTMODE_NOTEXT ? 0 : 1, 0);
+		RecalcWin2KButtonWidths(m_hWndToolbar, m_lastTheme, dwMode);
+		ApplyWin2KButtonGlyphMode(dwMode);
+		SendMessage(m_hWndToolbar, TB_AUTOSIZE, 0, 0);
+		InvalidateRect(m_hWndToolbar, nullptr, TRUE);
+		return;
+	}
+
 	switch (dwMode)
 	{
 	case CE_TEXTMODE_SHOWTEXT:
@@ -2306,6 +3042,7 @@ void CStandardToolbar::ApplyTextLabelMode(DWORD dwMode)
 
 	// Force toolbar to recalculate layout
 	RecalcXpButtonWidths(m_hWndToolbar, m_lastTheme);
+	RecalcWin2KButtonWidths(m_hWndToolbar, m_lastTheme, dwMode);
 	SendMessage(m_hWndToolbar, TB_AUTOSIZE, 0, 0);
 	InvalidateRect(m_hWndToolbar, nullptr, TRUE);
 }
@@ -2332,14 +3069,19 @@ void CStandardToolbar::RebuildImageLists()
 	if (m_hilDefault) { ImageList_Destroy(m_hilDefault); m_hilDefault = nullptr; }
 	if (m_hilHot)     { ImageList_Destroy(m_hilHot);     m_hilHot = nullptr; }
 	if (m_hilDisabled){ ImageList_Destroy(m_hilDisabled); m_hilDisabled = nullptr; }
+	m_iWin2KShiftedGlyphBase = -1;
 
 	// Create new ones
-	m_hilDefault  = _CreateImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask);
-	m_hilHot      = _CreateImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask);
+	m_hilDefault  = _CreateToolbarImageListFromResource(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
+	m_hilHot      = _CreateToolbarImageListFromResource(hInst, bmp.idHot, bmp.cx, crMask, settings.theme);
 	m_hilDisabled = _CreateDisabledImageList(hInst, bmp.idDef, bmp.cx, crMask, settings.theme);
 
 	// Append system bitmap icons for Properties, Cut, Copy, Paste, Folder Options
 	_AppendSystemBitmapIcons(m_hilDefault, m_hilHot, m_hilDisabled, bmp.cx, settings.theme, fIE55);
+
+	m_iWin2KShiftedGlyphBase = (settings.theme == CLASSIC_EXPLORER_2K)
+		? _PrepareWin2KSelectiveTextImageLists(m_hilDefault, m_hilHot, m_hilDisabled, crMask)
+		: -1;
 
 	SendMessage(m_hWndToolbar, TB_SETIMAGELIST, 0, (LPARAM)m_hilDefault);
 	SendMessage(m_hWndToolbar, TB_SETHOTIMAGELIST, 0, (LPARAM)m_hilHot);
@@ -2430,6 +3172,9 @@ void CStandardToolbar::ReloadSettings()
 			}
 		}
 	}
+
+	ApplyWin2KButtonGlyphMode(dwTextMode);
+	UpdateDefViewButtonStates();
 
 	// Notify the rebar parent to recalculate band sizes
 	HWND hRebar = GetParent(m_hWndToolbar);
